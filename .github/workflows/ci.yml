@@ -83,9 +83,7 @@ jobs:
           echo "✓ Table rendering"
 
           # Code block rendering
-          echo '```go
-fmt.Println("hello")
-```' | ./md2img -o /tmp/test_code.png -code-bg "#2d2d2d" -code-font Courier
+          printf 'go\nfmt.Println("hello")\n' | ./md2img -o /tmp/test_code.png -code-bg "#2d2d2d" -code-font Courier
           echo "✓ Code block rendering"
 
           # Version flag
