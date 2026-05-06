@@ -58,6 +58,8 @@ func (r *renderer) renderNode(n ast.Node) {
 		r.renderBlockquote(n)
 	case kind == "ThematicBreak":
 		r.renderHR()
+	default:
+		// unhandled node type, skip
 	}
 }
 

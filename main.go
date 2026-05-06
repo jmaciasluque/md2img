@@ -46,7 +46,6 @@ func main() {
 	var md string
 	var output string
 
-	// Parse args: md2img [-o output.png] [input.md]
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-o" && i+1 < len(args) {
@@ -66,7 +65,6 @@ func main() {
 		output = "/tmp/md2img_output.png"
 	}
 
-	// Read from stdin if no file argument
 	if md == "" {
 		var buf bytes.Buffer
 		buf.ReadFrom(os.Stdin)
