@@ -18,29 +18,22 @@ jobs:
           go-version: "1.24"
 
       - name: Build releases
+        shell: bash
         run: |
+          set -e
           VERSION="${GITHUB_REF#refs/tags/}"
           mkdir -p dist
 
-          BUILDS=(
-            "linux amd64"
-            "linux arm64"
-            "darwin amd64"
-            "darwin arm64"
-            "windows amd64"
-            "windows arm64"
-          )
-
-          for build in "${BUILDS[@]}"; do
-            GOOS="${build%% *}"
-            GOARCH="${build## *}"
+          for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS="${pair%%/*}"
+            GOARCH="${pair##*/}"
             EXT=""
             if [ "$GOOS" = "windows" ]; then
               EXT=".exe"
             fi
             BINARY="md2img-${GOOS}-${GOARCH}${EXT}"
             echo "Building ${BINARY}..."
-            GOOS=$GOOS GOARCH=$GOARCH go build \
+            GOOS="$GOOS" GOARCH="$GOARCH" go build \
               -ldflags "-s -w -X github.com/jmaciasluque/md2img.Version=${VERSION}" \
               -o "dist/${BINARY}" \
               ./cmd/md2img
@@ -52,16 +45,12 @@ jobs:
       - name: Package releases
         run: |
           cd dist
-          for f in md2img-linux-*; do
-            tar czf "${f}.tar.gz" "$f"
-          done
-          for f in md2img-darwin-*; do
+          for f in md2img-linux-* md2img-darwin-*; do
             tar czf "${f}.tar.gz" "$f"
           done
           for f in md2img-windows-*; do
             zip "${f}.zip" "$f"
           done
-          rm -f md2img-*.tar.gz.zip
           echo "=== Packages ==="
           ls -lh
 
