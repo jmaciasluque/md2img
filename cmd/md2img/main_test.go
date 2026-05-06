@@ -109,3 +109,144 @@ func TestCLIBadFile(t *testing.T) {
 		t.Errorf("expected error message, got: %q", out)
 	}
 }
+
+// --- Tests for new flags ---
+
+func TestCLIFontFlag(t *testing.T) {
+	outFile := filepath.Join(t.TempDir(), "font.png")
+	out, err := runCLI(t, "-o", outFile, "-font", "Times", "-font-size", "14", "-",
+	)
+	if err == nil {
+		// If it didn't error, the flag was accepted
+		t.Log("font flag accepted (stdin was empty)")
+	}
+	_ = out
+}
+
+func TestCLIDPIFlag(t *testing.T) {
+	mdFile := filepath.Join(t.TempDir(), "dpi.md")
+	if err := os.WriteFile(mdFile, []byte("# DPI Test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(t.TempDir(), "dpi.png")
+	out, err := runCLI(t, "-o", outFile, "-dpi", "100", mdFile)
+	if err != nil {
+		t.Fatalf("CLI with -dpi failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+}
+
+func TestCLIPDFFlag(t *testing.T) {
+	mdFile := filepath.Join(t.TempDir(), "pdf.md")
+	if err := os.WriteFile(mdFile, []byte("# PDF Test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(t.TempDir(), "output.pdf")
+	out, err := runCLI(t, "-o", outFile, "-pdf", mdFile)
+	if err != nil {
+		t.Fatalf("CLI with -pdf failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+	if _, err := os.Stat(outFile); os.IsNotExist(err) {
+		t.Fatal("PDF output file not created")
+	}
+}
+
+func TestCLIColorFlags(t *testing.T) {
+	mdFile := filepath.Join(t.TempDir(), "colors.md")
+	if err := os.WriteFile(mdFile, []byte("# Colors\n\nTest."), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(t.TempDir(), "colors.png")
+	out, err := runCLI(t, "-o", outFile,
+		"-text-color", "#333333",
+		"-heading-color", "#006600",
+		"-table-header-bg", "#003366",
+		"-table-header-fg", "#ffffff",
+		"-code-bg", "#1a1a1a",
+		"-hr-color", "#cc0000",
+		"-blockquote-line-color", "#ff6600",
+		"-blockquote-text-color", "#555555",
+		mdFile,
+	)
+	if err != nil {
+		t.Fatalf("CLI with color flags failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+}
+
+func TestCLIMarginFlag(t *testing.T) {
+	mdFile := filepath.Join(t.TempDir(), "margin.md")
+	if err := os.WriteFile(mdFile, []byte("# Margins\n\nWide margins."), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(t.TempDir(), "margin.png")
+	out, err := runCLI(t, "-o", outFile, "-margin", "30", mdFile)
+	if err != nil {
+		t.Fatalf("CLI with -margin failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+}
+
+func TestCLIPageSizeFlags(t *testing.T) {
+	mdFile := filepath.Join(t.TempDir(), "pagesize.md")
+	if err := os.WriteFile(mdFile, []byte("# Page Size"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(t.TempDir(), "pagesize.png")
+	out, err := runCLI(t, "-o", outFile, "-page-w", "215.9", "-page-h", "279.4", mdFile)
+	if err != nil {
+		t.Fatalf("CLI with page size flags failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+}
+
+func TestCLIBadColorFlag(t *testing.T) {
+	out, err := runCLI(t, "-text-color", "notacolor", "-")
+	if err == nil {
+		t.Error("expected error for invalid color")
+	}
+	if !strings.Contains(out, "invalid hex color") {
+		t.Errorf("expected hex color error, got: %q", out)
+	}
+}
+
+func TestCLIBadDPIFlag(t *testing.T) {
+	out, err := runCLI(t, "-dpi", "notanumber", "-")
+	if err == nil {
+		t.Error("expected error for invalid DPI")
+	}
+	if !strings.Contains(out, "invalid -dpi") {
+		t.Errorf("expected DPI error, got: %q", out)
+	}
+}
+
+func TestCLIUnknownFlag(t *testing.T) {
+	out, err := runCLI(t, "-bogus", "-")
+	if err == nil {
+		t.Error("expected error for unknown flag")
+	}
+	if !strings.Contains(out, "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %q", out)
+	}
+}
+
+func TestCLIVersionFlag(t *testing.T) {
+	out, err := runCLI(t, "-version")
+	if err != nil {
+		t.Fatalf("CLI -version failed: %v", err)
+	}
+	if !strings.Contains(out, "md2img") {
+		t.Errorf("expected version output, got: %q", out)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/jung-kurt/gofpdf/v2"
@@ -17,33 +18,158 @@ import (
 // Version is set at build time via ldflags.
 var Version = "dev"
 
-const (
-	pageMargin = 15.0
-	cellH      = 8.0
-	a4Height   = 297.0
-)
-
 var parser = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 ).Parser()
 
-type renderer struct {
-	pdf *gofpdf.Fpdf
-	w   float64
-	src []byte
+// Color represents an RGB color with values 0–255.
+type Color struct {
+	R, G, B int
 }
 
-func newRenderer() *renderer {
+// HexToColor parses a hex color string like "#333366" or "333366" into a Color.
+func HexToColor(s string) (Color, error) {
+	s = strings.TrimPrefix(s, "#")
+	if len(s) == 3 {
+		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
+	}
+	if len(s) != 6 {
+		return Color{}, fmt.Errorf("invalid hex color: %s", s)
+	}
+	r, err := strconv.ParseUint(s[0:2], 16, 8)
+	if err != nil {
+		return Color{}, fmt.Errorf("invalid hex color: %s", s)
+	}
+	g, err := strconv.ParseUint(s[2:4], 16, 8)
+	if err != nil {
+		return Color{}, fmt.Errorf("invalid hex color: %s", s)
+	}
+	b, err := strconv.ParseUint(s[4:6], 16, 8)
+	if err != nil {
+		return Color{}, fmt.Errorf("invalid hex color: %s", s)
+	}
+	return Color{R: int(r), G: int(g), B: int(b)}, nil
+}
+
+// Config holds all customizable rendering options.
+type Config struct {
+	// Font
+	FontFamily string  // "Helvetica", "Times", or "Courier"
+	FontSize   float64 // Body text size in points
+
+	// Page
+	PageWidth    float64 // Page width in mm (default: 210 = A4)
+	PageHeight   float64 // Page height in mm (default: 297 = A4)
+	MarginTop    float64 // Top margin in mm
+	MarginLeft   float64 // Left margin in mm
+	MarginRight  float64 // Right margin in mm
+	MarginBottom float64 // Bottom margin in mm (used for page break check)
+
+	// Text colors
+	TextColor Color // Default body text color
+
+	// Heading colors and sizes
+	HeadingColor   Color    // Heading text color
+	HeadingSizes   [6]float64 // Font sizes for H1–H6
+	HeadingFont    string   // Heading font family override ("", same as FontFamily)
+
+	// Table
+	TableHeaderBg    Color   // Table header background
+	TableHeaderFg    Color   // Table header text color
+	TableHeaderFont  string  // Table header font family ("", same as FontFamily)
+	TableHeaderSize  float64 // Table header font size
+	TableCellHeight  float64 // Row height in mm
+	TableRowEven     Color   // Even row background
+	TableRowOdd      Color   // Odd row background
+
+	// Code block
+	CodeBg          Color   // Code block background
+	CodeFont        string  // Code font family (default: "Courier")
+	CodeFontSize    float64 // Code font size
+	CodeLineHeight  float64 // Code line height in mm
+
+	// Blockquote
+	BlockquoteLineColor Color  // Left border color
+	BlockquoteTextColor Color  // Quote text color
+	BlockquoteFont      string // Quote font (default: same as FontFamily, italic)
+
+	// Horizontal rule
+	HRColor     Color   // HR line color
+	HRLineWidth float64 // HR line thickness in mm
+
+	// Output
+	DPI     int    // Ghostscript DPI (default: 200)
+	AsPDF   bool   // Output PDF instead of PNG
+}
+
+// DefaultConfig returns a Config with sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		FontFamily: "Helvetica",
+		FontSize:   11,
+
+		PageWidth:    210,
+		PageHeight:   297,
+		MarginTop:    15,
+		MarginLeft:   15,
+		MarginRight:  15,
+		MarginBottom: 15,
+
+		TextColor: Color{40, 40, 40},
+
+		HeadingColor: Color{40, 40, 80},
+		HeadingSizes: [6]float64{22, 18, 14, 12, 11, 11},
+		HeadingFont:  "",
+
+		TableHeaderBg:   Color{50, 50, 80},
+		TableHeaderFg:   Color{200, 200, 255},
+		TableHeaderFont: "",
+		TableHeaderSize: 10,
+		TableCellHeight: 8,
+		TableRowEven:    Color{245, 245, 250},
+		TableRowOdd:     Color{255, 255, 255},
+
+		CodeBg:         Color{240, 240, 240},
+		CodeFont:       "Courier",
+		CodeFontSize:   9,
+		CodeLineHeight: 4.5,
+
+		BlockquoteLineColor: Color{100, 100, 200},
+		BlockquoteTextColor: Color{100, 100, 100},
+		BlockquoteFont:      "",
+
+		HRColor:     Color{180, 180, 180},
+		HRLineWidth: 0.3,
+
+		DPI:   200,
+		AsPDF: false,
+	}
+}
+
+type renderer struct {
+	pdf *gofpdf.Fpdf
+	w   float64 // content width (page width minus margins)
+	src []byte
+	cfg Config
+}
+
+func newRenderer(cfg Config) *renderer {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.SetAutoPageBreak(false, 0)
-	pdf.AddPage()
-	pdf.SetMargins(pageMargin, pageMargin, pageMargin)
+	// Add the first page. Use AddPageFormat for custom sizes.
+	isA4 := cfg.PageWidth == 210 && cfg.PageHeight == 297
+	if isA4 {
+		pdf.AddPage()
+	} else {
+		pdf.AddPageFormat("P", gofpdf.SizeType{Wd: cfg.PageWidth, Ht: cfg.PageHeight})
+	}
+	pdf.SetMargins(cfg.MarginLeft, cfg.MarginTop, cfg.MarginRight)
 	w, _ := pdf.GetPageSize()
-	return &renderer{pdf: pdf, w: w - 2*pageMargin}
+	return &renderer{pdf: pdf, w: w - cfg.MarginLeft - cfg.MarginRight, cfg: cfg}
 }
 
 func (r *renderer) ensureSpace(h float64) {
-	if r.pdf.GetY()+h > a4Height-pageMargin {
+	if r.pdf.GetY()+h > r.cfg.PageHeight-r.cfg.MarginBottom {
 		r.pdf.AddPage()
 	}
 }
@@ -93,19 +219,21 @@ func (r *renderer) extractText(n ast.Node) string {
 func (r *renderer) renderHeading(n ast.Node) {
 	h := n.(*ast.Heading)
 	text := r.extractText(n)
-	var size float64
-	switch h.Level {
-	case 1:
-		size = 22
-	case 2:
-		size = 18
-	case 3:
-		size = 14
-	default:
-		size = 12
+	idx := h.Level - 1
+	if idx < 0 {
+		idx = 0
 	}
-	r.pdf.SetFont("Helvetica", "B", size)
-	r.pdf.SetTextColor(40, 40, 80)
+	if idx > 5 {
+		idx = 5
+	}
+	size := r.cfg.HeadingSizes[idx]
+
+	font := r.cfg.HeadingFont
+	if font == "" {
+		font = r.cfg.FontFamily
+	}
+	r.pdf.SetFont(font, "B", size)
+	r.pdf.SetTextColor(r.cfg.HeadingColor.R, r.cfg.HeadingColor.G, r.cfg.HeadingColor.B)
 	r.ensureSpace(size + 5)
 	r.pdf.MultiCell(r.w, size*0.6, text, "", "L", false)
 	r.pdf.Ln(3)
@@ -113,8 +241,8 @@ func (r *renderer) renderHeading(n ast.Node) {
 
 func (r *renderer) renderParagraph(n ast.Node) {
 	text := r.extractText(n)
-	r.pdf.SetFont("Helvetica", "", 11)
-	r.pdf.SetTextColor(40, 40, 40)
+	r.pdf.SetFont(r.cfg.FontFamily, "", r.cfg.FontSize)
+	r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
 	r.ensureSpace(8)
 	r.pdf.MultiCell(r.w, 6, text, "", "L", false)
 	r.pdf.Ln(3)
@@ -136,16 +264,17 @@ func (r *renderer) renderCodeBlock(n ast.Node) {
 	default:
 		lines = strings.Split(r.extractText(n), "\n")
 	}
-	h := float64(len(lines))*4.5 + 6
+	lh := r.cfg.CodeLineHeight
+	h := float64(len(lines))*lh + 6
 	r.ensureSpace(h)
-	r.pdf.SetFillColor(240, 240, 240)
-	r.pdf.Rect(pageMargin, r.pdf.GetY(), r.w, h, "F")
-	r.pdf.SetFont("Courier", "", 9)
-	r.pdf.SetTextColor(40, 40, 40)
-	r.pdf.SetXY(pageMargin+3, r.pdf.GetY()+3)
+	r.pdf.SetFillColor(r.cfg.CodeBg.R, r.cfg.CodeBg.G, r.cfg.CodeBg.B)
+	r.pdf.Rect(r.cfg.MarginLeft, r.pdf.GetY(), r.w, h, "F")
+	r.pdf.SetFont(r.cfg.CodeFont, "", r.cfg.CodeFontSize)
+	r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
+	r.pdf.SetXY(r.cfg.MarginLeft+3, r.pdf.GetY()+3)
 	for _, line := range lines {
-		r.pdf.Cell(r.w-6, 4.5, line)
-		r.pdf.Ln(4.5)
+		r.pdf.Cell(r.w-6, lh, line)
+		r.pdf.Ln(lh)
 	}
 	r.pdf.Ln(4)
 }
@@ -172,41 +301,46 @@ func (r *renderer) renderTable(n ast.Node) {
 
 	numCols := len(rows[0])
 	colW := r.w / float64(numCols)
-	totalH := float64(len(rows)) * cellH
+	ch := r.cfg.TableCellHeight
+	totalH := float64(len(rows)) * ch
 	r.ensureSpace(totalH + 4)
 
 	y := r.pdf.GetY()
 
 	for ri, row := range rows {
 		for ci := 0; ci < numCols && ci < len(row); ci++ {
-			x := pageMargin + float64(ci)*colW
+			x := r.cfg.MarginLeft + float64(ci)*colW
 
 			if ri == 0 {
-				r.pdf.SetFillColor(50, 50, 80)
-				r.pdf.SetTextColor(200, 200, 255)
-				r.pdf.SetFont("Helvetica", "B", 10)
+				r.pdf.SetFillColor(r.cfg.TableHeaderBg.R, r.cfg.TableHeaderBg.G, r.cfg.TableHeaderBg.B)
+				r.pdf.SetTextColor(r.cfg.TableHeaderFg.R, r.cfg.TableHeaderFg.G, r.cfg.TableHeaderFg.B)
+				font := r.cfg.TableHeaderFont
+				if font == "" {
+					font = r.cfg.FontFamily
+				}
+				r.pdf.SetFont(font, "B", r.cfg.TableHeaderSize)
 			} else {
 				if ri%2 == 0 {
-					r.pdf.SetFillColor(245, 245, 250)
+					r.pdf.SetFillColor(r.cfg.TableRowEven.R, r.cfg.TableRowEven.G, r.cfg.TableRowEven.B)
 				} else {
-					r.pdf.SetFillColor(255, 255, 255)
+					r.pdf.SetFillColor(r.cfg.TableRowOdd.R, r.cfg.TableRowOdd.G, r.cfg.TableRowOdd.B)
 				}
-				r.pdf.SetTextColor(40, 40, 40)
-				r.pdf.SetFont("Helvetica", "", 10)
+				r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
+				r.pdf.SetFont(r.cfg.FontFamily, "", r.cfg.TableHeaderSize)
 			}
 
 			r.pdf.SetXY(x, y)
-			r.pdf.CellFormat(colW, cellH, "  "+row[ci], "1", 0, "L", true, 0, "")
+			r.pdf.CellFormat(colW, ch, "  "+row[ci], "1", 0, "L", true, 0, "")
 		}
-		y += cellH
+		y += ch
 	}
 	r.pdf.SetY(y + 4)
 }
 
 func (r *renderer) renderList(n ast.Node) {
 	l := n.(*ast.List)
-	r.pdf.SetFont("Helvetica", "", 11)
-	r.pdf.SetTextColor(40, 40, 40)
+	r.pdf.SetFont(r.cfg.FontFamily, "", r.cfg.FontSize)
+	r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
 	i := 1
 	for item := l.FirstChild(); item != nil; item = item.NextSibling() {
 		text := r.extractText(item)
@@ -223,13 +357,19 @@ func (r *renderer) renderList(n ast.Node) {
 }
 
 func (r *renderer) renderBlockquote(n ast.Node) {
-	r.pdf.SetDrawColor(100, 100, 200)
+	lc := r.cfg.BlockquoteLineColor
+	r.pdf.SetDrawColor(lc.R, lc.G, lc.B)
 	r.pdf.SetLineWidth(1)
 	y := r.pdf.GetY()
-	r.pdf.Line(pageMargin+2, y, pageMargin+2, y+6)
-	r.pdf.SetX(pageMargin + 8)
-	r.pdf.SetFont("Helvetica", "I", 11)
-	r.pdf.SetTextColor(100, 100, 100)
+	r.pdf.Line(r.cfg.MarginLeft+2, y, r.cfg.MarginLeft+2, y+6)
+	r.pdf.SetX(r.cfg.MarginLeft + 8)
+	font := r.cfg.BlockquoteFont
+	if font == "" {
+		font = r.cfg.FontFamily
+	}
+	r.pdf.SetFont(font, "I", r.cfg.FontSize)
+	tc := r.cfg.BlockquoteTextColor
+	r.pdf.SetTextColor(tc.R, tc.G, tc.B)
 	text := r.extractText(n)
 	r.ensureSpace(8)
 	r.pdf.MultiCell(r.w-10, 6, text, "", "L", false)
@@ -238,16 +378,25 @@ func (r *renderer) renderBlockquote(n ast.Node) {
 
 func (r *renderer) renderHR() {
 	y := r.pdf.GetY()
-	r.pdf.SetDrawColor(180, 180, 180)
-	r.pdf.SetLineWidth(0.3)
-	r.pdf.Line(pageMargin, y, pageMargin+r.w, y)
+	hc := r.cfg.HRColor
+	r.pdf.SetDrawColor(hc.R, hc.G, hc.B)
+	r.pdf.SetLineWidth(r.cfg.HRLineWidth)
+	r.pdf.Line(r.cfg.MarginLeft, y, r.cfg.MarginLeft+r.w, y)
 	r.pdf.Ln(5)
 }
 
 // Render converts markdown input to a PNG file at the given output path.
 // It requires Ghostscript (gs) to be installed on the system.
+// Uses DefaultConfig(). For custom options, use RenderWithConfig.
 func Render(input, output string) error {
-	r := newRenderer()
+	return RenderWithConfig(input, output, DefaultConfig())
+}
+
+// RenderWithConfig converts markdown input to a PNG or PDF file using the
+// given configuration. If cfg.AsPDF is true, output is a PDF file directly
+// (Ghostscript is not needed). Otherwise, Ghostscript converts the PDF to PNG.
+func RenderWithConfig(input, output string, cfg Config) error {
+	r := newRenderer(cfg)
 	r.src = []byte(input)
 	reader := text.NewReader(r.src)
 	doc := parser.Parse(reader)
@@ -257,11 +406,23 @@ func Render(input, output string) error {
 	if err := r.pdf.OutputFileAndClose(pdfPath); err != nil {
 		return fmt.Errorf("PDF error: %w", err)
 	}
+
+	if cfg.AsPDF {
+		// Rename PDF to the requested output path if it differs
+		if pdfPath != output {
+			if err := os.Rename(pdfPath, output); err != nil {
+				return fmt.Errorf("PDF rename error: %w", err)
+			}
+		}
+		return nil
+	}
+
 	defer os.Remove(pdfPath)
 
 	cmd := exec.Command("gs",
 		"-dNOPAUSE", "-dBATCH", "-dQUIET",
-		"-sDEVICE=png16m", "-r200",
+		"-sDEVICE=png16m",
+		fmt.Sprintf("-r%d", cfg.DPI),
 		"-sOutputFile="+output, pdfPath,
 	)
 	cmd.Stderr = os.Stderr
