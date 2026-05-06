@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build releases
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          mkdir -p dist
+
+          BUILDS=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+            "darwin arm64"
+            "windows amd64"
+            "windows arm64"
+          )
+
+          for build in "${BUILDS[@]}"; do
+            GOOS="${build%% *}"
+            GOARCH="${build## *}"
+            EXT=""
+            if [ "$GOOS" = "windows" ]; then
+              EXT=".exe"
+            fi
+            BINARY="md2img-${GOOS}-${GOARCH}${EXT}"
+            echo "Building ${BINARY}..."
+            GOOS=$GOOS GOARCH=$GOARCH go build \
+              -ldflags "-s -w -X github.com/jmaciasluque/md2img.Version=${VERSION}" \
+              -o "dist/${BINARY}" \
+              ./cmd/md2img
+          done
+
+          echo "=== Built binaries ==="
+          ls -lh dist/
+
+      - name: Package releases
+        run: |
+          cd dist
+          for f in md2img-linux-*; do
+            tar czf "${f}.tar.gz" "$f"
+          done
+          for f in md2img-darwin-*; do
+            tar czf "${f}.tar.gz" "$f"
+          done
+          for f in md2img-windows-*; do
+            zip "${f}.zip" "$f"
+          done
+          rm -f md2img-*.tar.gz.zip
+          echo "=== Packages ==="
+          ls -lh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip

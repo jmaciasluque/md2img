@@ -1,18 +1,31 @@
-package main
+package md2img
 
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/jung-kurt/gofpdf/v2"
+	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
 )
+
+// Version is set at build time via ldflags.
+var Version = "dev"
 
 const (
 	pageMargin = 15.0
 	cellH      = 8.0
+	a4Height   = 297.0
 )
+
+var parser = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+).Parser()
 
 type renderer struct {
 	pdf *gofpdf.Fpdf
@@ -30,7 +43,7 @@ func newRenderer() *renderer {
 }
 
 func (r *renderer) ensureSpace(h float64) {
-	if r.pdf.GetY()+h > 297-pageMargin {
+	if r.pdf.GetY()+h > a4Height-pageMargin {
 		r.pdf.AddPage()
 	}
 }
@@ -58,8 +71,6 @@ func (r *renderer) renderNode(n ast.Node) {
 		r.renderBlockquote(n)
 	case kind == "ThematicBreak":
 		r.renderHR()
-	default:
-		// unhandled node type, skip
 	}
 }
 
@@ -231,4 +242,32 @@ func (r *renderer) renderHR() {
 	r.pdf.SetLineWidth(0.3)
 	r.pdf.Line(pageMargin, y, pageMargin+r.w, y)
 	r.pdf.Ln(5)
+}
+
+// Render converts markdown input to a PNG file at the given output path.
+// It requires Ghostscript (gs) to be installed on the system.
+func Render(input, output string) error {
+	r := newRenderer()
+	r.src = []byte(input)
+	reader := text.NewReader(r.src)
+	doc := parser.Parse(reader)
+	r.renderNodes(doc)
+
+	pdfPath := strings.TrimSuffix(output, ".png") + ".pdf"
+	if err := r.pdf.OutputFileAndClose(pdfPath); err != nil {
+		return fmt.Errorf("PDF error: %w", err)
+	}
+	defer os.Remove(pdfPath)
+
+	cmd := exec.Command("gs",
+		"-dNOPAUSE", "-dBATCH", "-dQUIET",
+		"-sDEVICE=png16m", "-r200",
+		"-sOutputFile="+output, pdfPath,
+	)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("PNG conversion error (is ghostscript installed?): %w", err)
+	}
+
+	return nil
 }

@@ -1,3 +1,12 @@
-md2img
+# Build output
+/md2img
+/dist/
+
+# Test output
 *.png
 *.pdf
+
+# Go
+*.exe
+*.test
+*.out

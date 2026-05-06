@@ -8,14 +8,23 @@ markdown → goldmark (parser) → gofpdf (PDF) → Ghostscript (PNG)
 
 ## Install
 
+### Pre-built binaries
+
+Download the latest release for your platform from the [Releases page](https://github.com/jmaciasluque/md2img/releases).
+
+### From source
+
 ```bash
-# From source
 git clone https://github.com/jmaciasluque/md2img.git
 cd md2img
-go build -o md2img .
+make build    # → ./md2img
+make install  # → ~/go/bin/md2img
+```
 
-# Or with Go install
-go install github.com/jmaciasluque/md2img@latest
+### With Go
+
+```bash
+go install github.com/jmaciasluque/md2img/cmd/md2img@latest
 ```
 
 **Dependencies:** [Ghostscript](https://www.ghostscript.com/) (`gs`) must be installed.
@@ -42,6 +51,14 @@ md2img -o output.png input.md
 
 # Default output: /tmp/md2img_output.png
 echo "# Hello" | md2img
+```
+
+## As a library
+
+```go
+import md2img "github.com/jmaciasluque/md2img"
+
+err := md2img.Render("# Hello\n\nWorld.", "output.png")
 ```
 
 ## Supported Markdown
@@ -90,7 +107,25 @@ fmt.Println("hello world")
 ### Full Document
 
 ```bash
-md2img -o report.md.png report.md
+md2img -o report.png report.md
+```
+
+## Project Structure
+
+```
+md2img/
+├── cmd/md2img/     # CLI entry point
+│   ├── main.go
+│   └── main_test.go
+├── render.go       # PDF rendering engine (library API)
+├── sanitize.go     # Unicode → ASCII mapping
+├── sanitize_test.go
+├── render_test.go
+├── Makefile
+├── .github/workflows/
+│   ├── ci.yml      # Build + test on push/PR
+│   └── release.yml # Multi-platform release builds
+└── README.md
 ```
 
 ## How It Works
@@ -105,13 +140,13 @@ The binary is ~5MB. Ghostscript is the only external dependency.
 
 ```bash
 # Run tests
-go test -v ./...
+make test
 
 # Build
-go build -o md2img .
+make build
 
 # Install locally
-go install .
+make install
 ```
 
 ## License
