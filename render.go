@@ -105,6 +105,7 @@ type Config struct {
 	TableHeaderFont  string
 	TableHeaderSize  float64
 	TableCellHeight  float64
+	TableAutoWidth   bool // size columns to fit content
 	TableRowEven     Color
 	TableRowOdd      Color
 
@@ -133,7 +134,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		FontFamily: "Helvetica",
-		FontSize:   11,
+		FontSize:   14,
 
 		PageWidth:    210,
 		PageHeight:   297,
@@ -152,15 +153,16 @@ func DefaultConfig() Config {
 		TableHeaderBg:   Color{50, 50, 80},
 		TableHeaderFg:   Color{200, 200, 255},
 		TableHeaderFont: "",
-		TableHeaderSize: 10,
-		TableCellHeight: 10,
+		TableHeaderSize: 12,
+		TableAutoWidth:  true,
+		TableCellHeight: 5,
 		TableRowEven:    Color{245, 245, 250},
 		TableRowOdd:     Color{255, 255, 255},
 
 		CodeBg:         Color{240, 240, 240},
 		CodeFont:       "Courier",
-		CodeFontSize:   9,
-		CodeLineHeight: 5.5,
+		CodeFontSize:   11,
+		CodeLineHeight: 6.5,
 
 		BlockquoteLineColor: Color{100, 100, 200},
 		BlockquoteTextColor: Color{100, 100, 100},
@@ -177,12 +179,13 @@ func DefaultConfig() Config {
 
 // canvas holds rendering state.
 type canvas struct {
-	img    *image.RGBA
-	width  int // canvas width in pixels
-	x, y   int // current position
-	margin int // margin in pixels
-	fonts  fontSet
-	cfg    Config
+	img       *image.RGBA
+	width     int // canvas width in pixels
+	x, y      int // current position
+	margin    int // left/right margin in pixels
+	marginTop int // top margin in pixels
+	fonts     fontSet
+	cfg       Config
 }
 
 // mmToPx converts millimeters to pixels at the given DPI.
@@ -199,6 +202,7 @@ func newCanvas(cfg Config) *canvas {
 	w := mmToPx(cfg.PageWidth, dpi)
 	h := mmToPx(cfg.PageHeight, dpi)
 	margin := mmToPx(cfg.MarginLeft, dpi)
+	mt := mmToPx(cfg.MarginTop, dpi)
 
 	img := image.NewRGBA(image.Rect(0, 0, w, h*4)) // 4x height for growth
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
@@ -206,11 +210,14 @@ func newCanvas(cfg Config) *canvas {
 	fonts := loadFonts(cfg.FontFamily, cfg.CodeFont, cfg.FontSize, cfg.CodeFontSize)
 
 	return &canvas{
-		img:    img,
-		width:  w,
-		margin: margin,
-		fonts:  fonts,
-		cfg:    cfg,
+		img:       img,
+		width:     w,
+		x:         margin,
+		y:         mt,
+		margin:    margin,
+		marginTop: mt,
+		fonts:     fonts,
+		cfg:       cfg,
 	}
 }
 
@@ -227,14 +234,23 @@ func (c *canvas) ensureHeight(needed int) {
 }
 
 // drawString draws text at the current position using the given face and color.
+// It advances c.x past the drawn text. The y position uses baseFaceH for consistent
+// baseline when mixing different font sizes (e.g. inline code).
 func (c *canvas) drawString(s string, face font.Face, col color.RGBA) {
+	c.drawStringAt(s, face, col, 0)
+}
+
+// drawStringAt draws text with a y-offset from the current c.y, using baseFaceH for
+// the baseline calculation so all inline elements sit on the same line.
+func (c *canvas) drawStringAt(s string, face font.Face, col color.RGBA, yOff int) {
 	d := &font.Drawer{
 		Dst:  c.img,
 		Face: face,
 		Src:  image.NewUniform(col),
-		Dot:  fixed.P(c.x, c.y+faceHeight(face)-2),
+		Dot:  fixed.P(c.x, c.y+faceHeight(face)-2+yOff),
 	}
 	d.DrawString(s)
+	c.x = int(d.Dot.X >> 6)
 }
 
 // drawLine draws a horizontal line.
@@ -302,15 +318,107 @@ func (c *canvas) renderHeading(n ast.Node, src []byte) {
 	lh := faceHeight(face)
 	c.y += lh / 2
 	c.drawString(text, face, c.cfg.HeadingColor.toRGBA())
-	c.y += lh/2 + 10
+	c.x = c.margin
+	c.y += lh/2 + 16
 }
 
 func (c *canvas) renderParagraph(n ast.Node, src []byte) {
-	text := extractText(n, src)
 	face := c.fonts.regular
 	lh := faceHeight(face)
-	c.drawString(text, face, c.cfg.TextColor.toRGBA())
-	c.y += lh + 6
+	c.renderInline(n, src, face, c.cfg.TextColor.toRGBA())
+	c.x = c.margin
+	c.y += lh + 12
+}
+
+// renderInline walks a node's children and draws text with bold/italic/code formatting.
+// All inline elements share the same baseline computed from baseFace.
+func (c *canvas) renderInline(n ast.Node, src []byte, baseFace font.Face, baseCol color.RGBA) {
+	baseH := faceHeight(baseFace)
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		switch child.Kind().String() {
+		case "Text":
+			t := child.(*ast.Text)
+			c.drawStringAt(string(t.Segment.Value(src)), baseFace, baseCol, 0)
+		case "String":
+			s := child.(*ast.String)
+			c.drawStringAt(string(s.Value), baseFace, baseCol, 0)
+		case "Emphasis":
+			em := child.(*ast.Emphasis)
+			face := baseFace
+			col := baseCol
+			if em.Level == 2 {
+				// Bold
+				family := c.cfg.HeadingFont
+				if family == "" {
+					family = c.cfg.FontFamily
+				}
+				f := systemFonts[family]
+				if f.regular == "" {
+					f = systemFonts["Helvetica"]
+				}
+				face = loadFace(f.bold, c.cfg.FontSize)
+			} else if em.Level == 1 {
+				// Italic
+				if c.fonts.italic != nil {
+					face = c.fonts.italic
+				}
+			}
+			yOff := baseH - faceHeight(face)
+			c.renderInlineWithOffset(child, src, face, col, yOff)
+		case "CodeSpan":
+			code := extractText(child, src)
+			codeFace := loadFace(systemFonts["Courier"].regular, c.cfg.FontSize)
+			if codeFace == nil {
+				codeFace = c.fonts.code
+			}
+			yOff := baseH - faceHeight(codeFace)
+			c.drawStringAt(code, codeFace, c.cfg.TextColor.toRGBA(), yOff)
+		default:
+			c.renderInline(child, src, baseFace, baseCol)
+		}
+	}
+}
+
+// renderInlineWithOffset renders inline content with a persistent y-offset for baseline alignment.
+func (c *canvas) renderInlineWithOffset(n ast.Node, src []byte, baseFace font.Face, baseCol color.RGBA, yOff int) {
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		switch child.Kind().String() {
+		case "Text":
+			t := child.(*ast.Text)
+			c.drawStringAt(string(t.Segment.Value(src)), baseFace, baseCol, yOff)
+		case "String":
+			s := child.(*ast.String)
+			c.drawStringAt(string(s.Value), baseFace, baseCol, yOff)
+		case "Emphasis":
+			em := child.(*ast.Emphasis)
+			face := baseFace
+			if em.Level == 2 {
+				family := c.cfg.HeadingFont
+				if family == "" {
+					family = c.cfg.FontFamily
+				}
+				f := systemFonts[family]
+				if f.regular == "" {
+					f = systemFonts["Helvetica"]
+				}
+				face = loadFace(f.bold, c.cfg.FontSize)
+			} else if em.Level == 1 {
+				if c.fonts.italic != nil {
+					face = c.fonts.italic
+				}
+			}
+			c.renderInlineWithOffset(child, src, face, baseCol, yOff)
+		case "CodeSpan":
+			code := extractText(child, src)
+			codeFace := loadFace(systemFonts["Courier"].regular, c.cfg.FontSize)
+			if codeFace == nil {
+				codeFace = c.fonts.code
+			}
+			c.drawStringAt(code, codeFace, c.cfg.TextColor.toRGBA(), yOff)
+		default:
+			c.renderInlineWithOffset(child, src, baseFace, baseCol, yOff)
+		}
+	}
 }
 
 func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
@@ -331,7 +439,7 @@ func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
 	}
 
 	lh := mmToPx(c.cfg.CodeLineHeight, c.cfg.DPI)
-	padding := mmToPx(4, c.cfg.DPI)
+	padding := mmToPx(1.5, c.cfg.DPI)
 	blockH := len(lines)*lh + padding*2
 	lineH := faceHeight(c.fonts.code)
 
@@ -343,11 +451,12 @@ func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
 	c.x = c.margin + padding
 	c.y += padding
 	for _, line := range lines {
+		c.x = c.margin + padding
 		c.drawString(line, c.fonts.code, c.cfg.TextColor.toRGBA())
 		c.y += lineH
 	}
 	c.x = c.margin
-	c.y += padding + 6
+	c.y += padding + 12
 }
 
 func (c *canvas) renderTable(n ast.Node, src []byte) {
@@ -372,7 +481,6 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 
 	numCols := len(rows[0])
 	tableW := c.width - 2*c.margin
-	colW := tableW / numCols
 	rowH := mmToPx(c.cfg.TableCellHeight, c.cfg.DPI)
 	if rowH < 20 {
 		rowH = 20
@@ -389,10 +497,52 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 	}
 	headerFace := loadFace(family.bold, c.cfg.TableHeaderSize)
 
+	// Cell internal padding (pixels per side)
+	cellPad := 12
+
+	// Compute per-column widths
+	colWidths := make([]int, numCols)
+	if c.cfg.TableAutoWidth {
+		for ci := 0; ci < numCols; ci++ {
+			maxW := 0
+			for ri, row := range rows {
+				if ci < len(row) {
+					face := c.fonts.regular
+					if ri == 0 {
+						face = headerFace
+					}
+					w := measure(face, row[ci])
+					if w > maxW {
+						maxW = w
+					}
+				}
+			}
+			colWidths[ci] = maxW + 2*cellPad
+		}
+		// Ensure total doesn't exceed available width; shrink proportionally if needed.
+		totalW := 0
+		for _, w := range colWidths {
+			totalW += w
+		}
+		if totalW > tableW {
+			scale := float64(tableW) / float64(totalW)
+			for i := range colWidths {
+				colWidths[i] = int(float64(colWidths[i]) * scale)
+			}
+		}
+	} else {
+		colW := tableW / numCols
+		for i := range colWidths {
+			colWidths[i] = colW
+		}
+	}
+
+	xOffset := c.margin
 	for ri, row := range rows {
 		c.ensureHeight(rowH + 10)
+		x := xOffset
 		for ci := 0; ci < numCols && ci < len(row); ci++ {
-			x := c.margin + ci*colW
+			cw := colWidths[ci]
 			y := c.y
 
 			// Background
@@ -404,14 +554,14 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 			} else {
 				bg = c.cfg.TableRowOdd.toRGBA()
 			}
-			c.drawRect(image.Rect(x, y, x+colW, y+rowH), bg)
+			c.drawRect(image.Rect(x, y, x+cw, y+rowH), bg)
 
 			// Borders
 			borderCol := color.RGBA{180, 180, 180, 255}
-			c.drawHorizontalLine(x, x+colW, y, borderCol, 0.5)
-			c.drawHorizontalLine(x, x+colW, y+rowH, borderCol, 0.5)
+			c.drawHorizontalLine(x, x+cw, y, borderCol, 0.5)
+			c.drawHorizontalLine(x, x+cw, y+rowH, borderCol, 0.5)
 			c.drawVerticalLine(x, y, y+rowH, borderCol)
-			c.drawVerticalLine(x+colW, y, y+rowH, borderCol)
+			c.drawVerticalLine(x+cw, y, y+rowH, borderCol)
 
 			// Text
 			fg := c.cfg.TextColor.toRGBA()
@@ -424,13 +574,14 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 				Dst:  c.img,
 				Face: face,
 				Src:  image.NewUniform(fg),
-				Dot:  fixed.P(x+8, y+rowH-int(float64(rowH)*0.3)),
+				Dot:  fixed.P(x+cellPad, y+rowH-int(float64(rowH)*0.3)),
 			}
 			d.DrawString(row[ci])
+			x += cw
 		}
 		c.y += rowH
 	}
-	c.y += 10
+	c.y += 14
 }
 
 func (c *canvas) renderList(n ast.Node, src []byte) {
@@ -447,9 +598,10 @@ func (c *canvas) renderList(n ast.Node, src []byte) {
 			i++
 		}
 		c.drawString(bullet+text, face, c.cfg.TextColor.toRGBA())
-		c.y += lh + 3
+		c.x = c.margin
+		c.y += lh + 6
 	}
-	c.y += 6
+	c.y += 10
 }
 
 func (c *canvas) renderBlockquote(n ast.Node, src []byte) {
@@ -465,11 +617,11 @@ func (c *canvas) renderBlockquote(n ast.Node, src []byte) {
 	text := extractText(n, src)
 	c.drawString(text, face, c.cfg.BlockquoteTextColor.toRGBA())
 	c.x = saved
-	c.y += faceHeight(face) + 4
+	c.y += faceHeight(face) + 12
 }
 
 func (c *canvas) renderHR() {
-	c.y += 8
+	c.y += 12
 	y := c.y
 	hc := c.cfg.HRColor.toRGBA()
 	lw := int(c.cfg.HRLineWidth * float64(c.cfg.DPI) / 25.4)
@@ -477,7 +629,7 @@ func (c *canvas) renderHR() {
 		lw = 1
 	}
 	c.drawHorizontalLine(c.margin, c.width-c.margin, y, hc, float64(lw))
-	c.y += 12
+	c.y += 16
 }
 
 // --- Top-level render ---
@@ -570,7 +722,12 @@ func RenderWithConfig(input, output string, cfg Config) error {
 		return writePNG(image.NewRGBA(image.Rect(0, 0, 1, 1)), output)
 	}
 
-	cropped := c.img.SubImage(image.Rect(0, 0, right+1, contentH))
+	// Ensure symmetric left/right padding in the crop.
+	rightEdge := right + 1 + left // right padding = left padding
+	if rightEdge > bounds.Dx() {
+		rightEdge = bounds.Dx()
+	}
+	cropped := c.img.SubImage(image.Rect(0, 0, rightEdge, contentH))
 
 	if cfg.Trim {
 		return writeTrimmedPNG(cropped, output, cfg.DPI, cfg.TrimPadding)

@@ -160,6 +160,8 @@ func run() error {
 				cfg.TableRowOdd = c
 				i++
 			}
+		case "-table-full-width", "--table-full-width":
+			cfg.TableAutoWidth = false
 
 		// Code
 		case "-code-bg", "--code-bg":
