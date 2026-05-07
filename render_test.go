@@ -255,20 +255,6 @@ func TestRenderCustomDPI(t *testing.T) {
 	requireFile(t, out)
 }
 
-func TestRenderAsPDF(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.AsPDF = true
-
-	out := filepath.Join(t.TempDir(), "output.pdf")
-	if err := RenderWithConfig("# PDF Output\n\nDirect PDF, no Ghostscript needed.", out, cfg); err != nil {
-		t.Fatalf("RenderWithConfig(PDF) error: %v", err)
-	}
-	info := requireFile(t, out)
-	if info.Size() < 500 {
-		t.Errorf("PDF output too small: %d bytes", info.Size())
-	}
-}
-
 func TestRenderBlockquoteColors(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.BlockquoteLineColor = Color{R: 200, G: 0, B: 0}
@@ -333,9 +319,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.DPI != 200 {
 		t.Errorf("default DPI = %d, want 200", cfg.DPI)
-	}
-	if cfg.AsPDF {
-		t.Error("default AsPDF should be false")
 	}
 	if cfg.PageWidth != 210 || cfg.PageHeight != 297 {
 		t.Errorf("default page = %.0fx%.0f, want 210x297", cfg.PageWidth, cfg.PageHeight)

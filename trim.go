@@ -21,26 +21,52 @@ func trimPNG(path string, dpi int, paddingMM float64) error {
 		return err
 	}
 
+	nrgba := image.NewNRGBA(img.Bounds())
+	draw.Draw(nrgba, nrgba.Bounds(), img, img.Bounds().Min, draw.Src)
+
+	cropped := trimImage(nrgba, dpi, paddingMM)
+
+	out, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return png.Encode(out, cropped)
+}
+
+// writeTrimmedPNG crops an image to its content bounds and writes it.
+func writeTrimmedPNG(img image.Image, path string, dpi int, paddingMM float64) error {
 	bounds := img.Bounds()
+
+	// Convert to NRGBA for pixel access.
+	nrgba := image.NewNRGBA(bounds)
+	draw.Draw(nrgba, bounds, img, bounds.Min, draw.Src)
+
+	cropped := trimImage(nrgba, dpi, paddingMM)
+
+	out, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return png.Encode(out, cropped)
+}
+
+// trimImage scans for non-white content and crops with padding.
+func trimImage(nrgba *image.NRGBA, dpi int, paddingMM float64) image.Image {
+	bounds := nrgba.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 
-	// Padding in pixels.
 	padding := int(float64(dpi) * paddingMM / 25.4)
 	if padding < 1 {
 		padding = 1
 	}
 
-	// Convert to NRGBA for direct Pix buffer access (no per-pixel interface dispatch).
-	nrgba := image.NewNRGBA(bounds)
-	draw.Draw(nrgba, bounds, img, bounds.Min, draw.Src)
-
 	pix := nrgba.Pix
 	stride := nrgba.Stride
 
-	top := h
-	bottom := 0
-	left := w
-	right := 0
+	top, bottom := h, 0
+	left, right := w, 0
 
 	for y := 0; y < h; y++ {
 		rowOff := y * stride
@@ -50,7 +76,6 @@ func trimPNG(path string, dpi int, paddingMM float64) error {
 			g := pix[off+1]
 			b := pix[off+2]
 			a := pix[off+3]
-			// Skip fully transparent or near-white pixels.
 			if a < 128 {
 				continue
 			}
@@ -73,10 +98,9 @@ func trimPNG(path string, dpi int, paddingMM float64) error {
 	}
 
 	if top > bottom {
-		return nil
+		return nrgba
 	}
 
-	// Apply padding, clamping to image bounds.
 	x0 := bounds.Min.X + left - padding
 	if x0 < bounds.Min.X {
 		x0 = bounds.Min.X
@@ -94,13 +118,5 @@ func trimPNG(path string, dpi int, paddingMM float64) error {
 		y1 = bounds.Max.Y
 	}
 
-	cropped := nrgba.SubImage(image.Rect(x0, y0, x1, y1))
-
-	out, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	return png.Encode(out, cropped)
+	return nrgba.SubImage(image.Rect(x0, y0, x1, y1))
 }

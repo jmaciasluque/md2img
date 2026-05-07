@@ -83,12 +83,6 @@ func BenchmarkRenderComplex(b *testing.B) {
 	benchRender(b, benchComplex, nil)
 }
 
-func BenchmarkRenderPDF(b *testing.B) {
-	cfg := DefaultConfig()
-	cfg.AsPDF = true
-	benchRender(b, benchComplex, &cfg)
-}
-
 func BenchmarkRenderDPI100(b *testing.B) {
 	cfg := DefaultConfig()
 	cfg.DPI = 100

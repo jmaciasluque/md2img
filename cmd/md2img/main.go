@@ -227,8 +227,6 @@ func run() error {
 				cfg.DPI = v
 				i++
 			}
-		case "-pdf", "--pdf":
-			cfg.AsPDF = true
 		case "-trim", "--trim":
 			cfg.Trim = true
 		case "-trim-padding", "--trim-padding":
@@ -254,11 +252,7 @@ func run() error {
 	}
 
 	if output == "" {
-		if cfg.AsPDF {
-			output = "/tmp/md2img_output.pdf"
-		} else {
-			output = "/tmp/md2img_output.png"
-		}
+		output = "/tmp/md2img_output.png"
 	}
 
 	if md == "" {

@@ -138,24 +138,6 @@ func TestCLIDPIFlag(t *testing.T) {
 	}
 }
 
-func TestCLIPDFFlag(t *testing.T) {
-	mdFile := filepath.Join(t.TempDir(), "pdf.md")
-	if err := os.WriteFile(mdFile, []byte("# PDF Test"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	outFile := filepath.Join(t.TempDir(), "output.pdf")
-	out, err := runCLI(t, "-o", outFile, "-pdf", mdFile)
-	if err != nil {
-		t.Fatalf("CLI with -pdf failed: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, "Done:") {
-		t.Errorf("expected 'Done:' in output, got: %s", out)
-	}
-	if _, err := os.Stat(outFile); os.IsNotExist(err) {
-		t.Fatal("PDF output file not created")
-	}
-}
-
 func TestCLIColorFlags(t *testing.T) {
 	mdFile := filepath.Join(t.TempDir(), "colors.md")
 	if err := os.WriteFile(mdFile, []byte("# Colors\n\nTest."), 0644); err != nil {

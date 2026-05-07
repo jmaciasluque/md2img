@@ -3,16 +3,19 @@ package md2img
 import (
 	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 
-	"github.com/jung-kurt/gofpdf/v2"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/text"
+	"golang.org/x/image/font"
+	"golang.org/x/image/math/fixed"
 )
 
 // Version is set at build time via ldflags.
@@ -36,19 +39,41 @@ func HexToColor(s string) (Color, error) {
 	if len(s) != 6 {
 		return Color{}, fmt.Errorf("invalid hex color: %s", s)
 	}
-	r, err := strconv.ParseUint(s[0:2], 16, 8)
+	r, err := hexByte(s[0:2])
 	if err != nil {
 		return Color{}, fmt.Errorf("invalid hex color: %s", s)
 	}
-	g, err := strconv.ParseUint(s[2:4], 16, 8)
+	g, err := hexByte(s[2:4])
 	if err != nil {
 		return Color{}, fmt.Errorf("invalid hex color: %s", s)
 	}
-	b, err := strconv.ParseUint(s[4:6], 16, 8)
+	b, err := hexByte(s[4:6])
 	if err != nil {
 		return Color{}, fmt.Errorf("invalid hex color: %s", s)
 	}
 	return Color{R: int(r), G: int(g), B: int(b)}, nil
+}
+
+func hexByte(s string) (byte, error) {
+	var v byte
+	for _, c := range s {
+		v *= 16
+		switch {
+		case c >= '0' && c <= '9':
+			v += byte(c - '0')
+		case c >= 'a' && c <= 'f':
+			v += byte(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			v += byte(c-'A') + 10
+		default:
+			return 0, fmt.Errorf("invalid hex digit: %c", c)
+		}
+	}
+	return v, nil
+}
+
+func (c Color) toRGBA() color.RGBA {
+	return color.RGBA{R: byte(c.R), G: byte(c.G), B: byte(c.B), A: 255}
 }
 
 // Config holds all customizable rendering options.
@@ -63,45 +88,45 @@ type Config struct {
 	MarginTop    float64 // Top margin in mm
 	MarginLeft   float64 // Left margin in mm
 	MarginRight  float64 // Right margin in mm
-	MarginBottom float64 // Bottom margin in mm (used for page break check)
+	MarginBottom float64 // Bottom margin in mm
 
 	// Text colors
 	TextColor Color // Default body text color
 
 	// Heading colors and sizes
-	HeadingColor   Color    // Heading text color
-	HeadingSizes   [6]float64 // Font sizes for H1–H6
-	HeadingFont    string   // Heading font family override ("", same as FontFamily)
+	HeadingColor   Color
+	HeadingSizes   [6]float64
+	HeadingFont    string // Heading font family override
+	HeadingBold    bool   // Render headings in bold (default: true)
 
 	// Table
-	TableHeaderBg    Color   // Table header background
-	TableHeaderFg    Color   // Table header text color
-	TableHeaderFont  string  // Table header font family ("", same as FontFamily)
-	TableHeaderSize  float64 // Table header font size
-	TableCellHeight  float64 // Row height in mm
-	TableRowEven     Color   // Even row background
-	TableRowOdd      Color   // Odd row background
+	TableHeaderBg    Color
+	TableHeaderFg    Color
+	TableHeaderFont  string
+	TableHeaderSize  float64
+	TableCellHeight  float64
+	TableRowEven     Color
+	TableRowOdd      Color
 
 	// Code block
-	CodeBg          Color   // Code block background
-	CodeFont        string  // Code font family (default: "Courier")
-	CodeFontSize    float64 // Code font size
-	CodeLineHeight  float64 // Code line height in mm
+	CodeBg         Color
+	CodeFont       string
+	CodeFontSize   float64
+	CodeLineHeight float64
 
 	// Blockquote
-	BlockquoteLineColor Color  // Left border color
-	BlockquoteTextColor Color  // Quote text color
-	BlockquoteFont      string // Quote font (default: same as FontFamily, italic)
+	BlockquoteLineColor Color
+	BlockquoteTextColor Color
+	BlockquoteFont      string
 
 	// Horizontal rule
-	HRColor     Color   // HR line color
-	HRLineWidth float64 // HR line thickness in mm
+	HRColor     Color
+	HRLineWidth float64
 
 	// Output
-	DPI        int     // Ghostscript DPI (default: 200)
-	AsPDF      bool    // Output PDF instead of PNG
-	Trim       bool    // Auto-crop whitespace from PNG output
-	TrimPadding float64 // Padding around content after trim, in mm (default: 5)
+	DPI         int
+	Trim        bool
+	TrimPadding float64
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -122,6 +147,7 @@ func DefaultConfig() Config {
 		HeadingColor: Color{40, 40, 80},
 		HeadingSizes: [6]float64{22, 18, 14, 12, 11, 11},
 		HeadingFont:  "",
+		HeadingBold:  true,
 
 		TableHeaderBg:   Color{50, 50, 80},
 		TableHeaderFg:   Color{200, 200, 255},
@@ -143,86 +169,113 @@ func DefaultConfig() Config {
 		HRColor:     Color{180, 180, 180},
 		HRLineWidth: 0.3,
 
-		DPI:        200,
-		AsPDF:      false,
-		Trim:       false,
+		DPI:         200,
+		Trim:        false,
 		TrimPadding: 5,
 	}
 }
 
-type renderer struct {
-	pdf *gofpdf.Fpdf
-	w   float64 // content width (page width minus margins)
-	src []byte
-	cfg Config
+// canvas holds rendering state.
+type canvas struct {
+	img    *image.RGBA
+	width  int // canvas width in pixels
+	x, y   int // current position
+	margin int // margin in pixels
+	fonts  fontSet
+	cfg    Config
 }
 
-func newRenderer(cfg Config) *renderer {
-	pdf := gofpdf.New("P", "mm", "A4", "")
-	pdf.SetAutoPageBreak(false, 0)
-	// Add the first page. Use AddPageFormat for custom sizes.
-	isA4 := cfg.PageWidth == 210 && cfg.PageHeight == 297
-	if isA4 {
-		pdf.AddPage()
-	} else {
-		pdf.AddPageFormat("P", gofpdf.SizeType{Wd: cfg.PageWidth, Ht: cfg.PageHeight})
+// mmToPx converts millimeters to pixels at the given DPI.
+func mmToPx(mm float64, dpi int) int {
+	return int(mm * float64(dpi) / 25.4)
+}
+
+func newCanvas(cfg Config) *canvas {
+	// Use DPI from config, or infer from PageWidth for reasonable pixel density.
+	dpi := cfg.DPI
+	if dpi <= 0 {
+		dpi = 200
 	}
-	pdf.SetMargins(cfg.MarginLeft, cfg.MarginTop, cfg.MarginRight)
-	w, _ := pdf.GetPageSize()
-	return &renderer{pdf: pdf, w: w - cfg.MarginLeft - cfg.MarginRight, cfg: cfg}
-}
+	w := mmToPx(cfg.PageWidth, dpi)
+	h := mmToPx(cfg.PageHeight, dpi)
+	margin := mmToPx(cfg.MarginLeft, dpi)
 
-func (r *renderer) ensureSpace(h float64) {
-	if r.pdf.GetY()+h > r.cfg.PageHeight-r.cfg.MarginBottom {
-		r.pdf.AddPage()
-	}
-}
+	img := image.NewRGBA(image.Rect(0, 0, w, h*4)) // 4x height for growth
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
 
-func (r *renderer) renderNodes(n ast.Node) {
-	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-		r.renderNode(child)
-	}
-}
+	fonts := loadFonts(cfg.FontFamily, cfg.CodeFont, cfg.FontSize, cfg.CodeFontSize)
 
-func (r *renderer) renderNode(n ast.Node) {
-	kind := n.Kind().String()
-	switch {
-	case kind == "Heading":
-		r.renderHeading(n)
-	case kind == "Paragraph":
-		r.renderParagraph(n)
-	case kind == "CodeBlock" || kind == "FencedCodeBlock":
-		r.renderCodeBlock(n)
-	case kind == "Table":
-		r.renderTable(n)
-	case kind == "List":
-		r.renderList(n)
-	case kind == "Blockquote":
-		r.renderBlockquote(n)
-	case kind == "ThematicBreak":
-		r.renderHR()
+	return &canvas{
+		img:    img,
+		width:  w,
+		margin: margin,
+		fonts:  fonts,
+		cfg:    cfg,
 	}
 }
 
-func (r *renderer) extractText(n ast.Node) string {
-	var buf bytes.Buffer
-	ast.Walk(n, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if entering {
-			switch t := n.(type) {
-			case *ast.Text:
-				buf.Write(t.Segment.Value(r.src))
-			case *ast.String:
-				buf.Write(t.Value)
+// ensureHeight grows the canvas if needed.
+func (c *canvas) ensureHeight(needed int) {
+	if c.y+needed < c.img.Bounds().Dy() {
+		return
+	}
+	newH := c.img.Bounds().Dy() * 2
+	newImg := image.NewRGBA(image.Rect(0, 0, c.width, newH))
+	draw.Draw(newImg, newImg.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
+	draw.Draw(newImg, c.img.Bounds(), c.img, image.Point{}, draw.Src)
+	c.img = newImg
+}
+
+// drawString draws text at the current position using the given face and color.
+func (c *canvas) drawString(s string, face font.Face, col color.RGBA) {
+	d := &font.Drawer{
+		Dst:  c.img,
+		Face: face,
+		Src:  image.NewUniform(col),
+		Dot:  fixed.P(c.x, c.y+faceHeight(face)-2),
+	}
+	d.DrawString(s)
+}
+
+// drawLine draws a horizontal line.
+func (c *canvas) drawHorizontalLine(x0, x1, y int, col color.RGBA, width float64) {
+	lw := int(width)
+	if lw < 1 {
+		lw = 1
+	}
+	for i := 0; i < lw; i++ {
+		for x := x0; x < x1; x++ {
+			if x >= 0 && x < c.img.Bounds().Dx() && y+i >= 0 && y+i < c.img.Bounds().Dy() {
+				c.img.Set(x, y+i, col)
 			}
 		}
-		return ast.WalkContinue, nil
-	})
-	return sanitize(buf.String())
+	}
 }
 
-func (r *renderer) renderHeading(n ast.Node) {
+// drawVerticalLine draws a vertical line.
+func (c *canvas) drawVerticalLine(x, y0, y1 int, col color.RGBA) {
+	for y := y0; y < y1; y++ {
+		if x >= 0 && x < c.img.Bounds().Dx() && y >= 0 && y < c.img.Bounds().Dy() {
+			c.img.Set(x, y, col)
+		}
+	}
+}
+
+// drawRect fills a rectangle.
+func (c *canvas) drawRect(r image.Rectangle, col color.RGBA) {
+	draw.Draw(c.img, r, &image.Uniform{col}, image.Point{}, draw.Src)
+}
+
+// fillBackground fills the entire canvas with white.
+func (c *canvas) fillBackground() {
+	draw.Draw(c.img, c.img.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
+}
+
+// --- Element renderers ---
+
+func (c *canvas) renderHeading(n ast.Node, src []byte) {
 	h := n.(*ast.Heading)
-	text := r.extractText(n)
+	text := extractText(n, src)
 	idx := h.Level - 1
 	if idx < 0 {
 		idx = 0
@@ -230,60 +283,74 @@ func (r *renderer) renderHeading(n ast.Node) {
 	if idx > 5 {
 		idx = 5
 	}
-	size := r.cfg.HeadingSizes[idx]
+	size := c.cfg.HeadingSizes[idx]
 
-	font := r.cfg.HeadingFont
-	if font == "" {
-		font = r.cfg.FontFamily
+	fontFamily := c.cfg.HeadingFont
+	if fontFamily == "" {
+		fontFamily = c.cfg.FontFamily
 	}
-	r.pdf.SetFont(font, "B", size)
-	r.pdf.SetTextColor(r.cfg.HeadingColor.R, r.cfg.HeadingColor.G, r.cfg.HeadingColor.B)
-	r.ensureSpace(size + 5)
-	r.pdf.MultiCell(r.w, size*0.6, text, "", "L", false)
-	r.pdf.Ln(3)
+	family := systemFonts[fontFamily]
+	if family.regular == "" {
+		family = systemFonts["Helvetica"]
+	}
+
+	face := loadFace(family.regular, size)
+	if c.cfg.HeadingBold {
+		face = loadFace(family.bold, size)
+	}
+
+	lh := faceHeight(face)
+	c.y += lh / 2
+	c.drawString(text, face, c.cfg.HeadingColor.toRGBA())
+	c.y += lh / 2 + 4
 }
 
-func (r *renderer) renderParagraph(n ast.Node) {
-	text := r.extractText(n)
-	r.pdf.SetFont(r.cfg.FontFamily, "", r.cfg.FontSize)
-	r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
-	r.ensureSpace(8)
-	r.pdf.MultiCell(r.w, 6, text, "", "L", false)
-	r.pdf.Ln(3)
+func (c *canvas) renderParagraph(n ast.Node, src []byte) {
+	text := extractText(n, src)
+	face := c.fonts.regular
+	lh := faceHeight(face)
+	c.drawString(text, face, c.cfg.TextColor.toRGBA())
+	c.y += lh + 2
 }
 
-func (r *renderer) renderCodeBlock(n ast.Node) {
+func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
 	var lines []string
 	switch block := n.(type) {
 	case *ast.FencedCodeBlock:
 		for i := 0; i < block.Lines().Len(); i++ {
 			seg := block.Lines().At(i)
-			lines = append(lines, strings.TrimRight(string(seg.Value(r.src)), "\n"))
+			lines = append(lines, strings.TrimRight(string(seg.Value(src)), "\n"))
 		}
 	case *ast.CodeBlock:
 		for i := 0; i < block.Lines().Len(); i++ {
 			seg := block.Lines().At(i)
-			lines = append(lines, strings.TrimRight(string(seg.Value(r.src)), "\n"))
+			lines = append(lines, strings.TrimRight(string(seg.Value(src)), "\n"))
 		}
 	default:
-		lines = strings.Split(r.extractText(n), "\n")
+		lines = strings.Split(extractText(n, src), "\n")
 	}
-	lh := r.cfg.CodeLineHeight
-	h := float64(len(lines))*lh + 6
-	r.ensureSpace(h)
-	r.pdf.SetFillColor(r.cfg.CodeBg.R, r.cfg.CodeBg.G, r.cfg.CodeBg.B)
-	r.pdf.Rect(r.cfg.MarginLeft, r.pdf.GetY(), r.w, h, "F")
-	r.pdf.SetFont(r.cfg.CodeFont, "", r.cfg.CodeFontSize)
-	r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
-	r.pdf.SetXY(r.cfg.MarginLeft+3, r.pdf.GetY()+3)
+
+	lh := mmToPx(c.cfg.CodeLineHeight, c.cfg.DPI)
+	padding := mmToPx(3, c.cfg.DPI)
+	blockH := len(lines)*lh + padding*2
+	lineH := faceHeight(c.fonts.code)
+
+	// Background
+	bgRect := image.Rect(c.margin-4, c.y, c.width-c.margin+4, c.y+blockH)
+	c.drawRect(bgRect, c.cfg.CodeBg.toRGBA())
+
+	// Text
+	c.x = c.margin + padding
+	c.y += padding
 	for _, line := range lines {
-		r.pdf.Cell(r.w-6, lh, line)
-		r.pdf.Ln(lh)
+		c.drawString(line, c.fonts.code, c.cfg.TextColor.toRGBA())
+		c.y += lineH
 	}
-	r.pdf.Ln(4)
+	c.x = c.margin
+	c.y += padding + 4
 }
 
-func (r *renderer) renderTable(n ast.Node) {
+func (c *canvas) renderTable(n ast.Node, src []byte) {
 	var rows [][]string
 	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
 		kind := child.Kind().String()
@@ -291,7 +358,7 @@ func (r *renderer) renderTable(n ast.Node) {
 			var cells []string
 			for cell := child.FirstChild(); cell != nil; cell = cell.NextSibling() {
 				if cell.Kind().String() == "TableCell" {
-					cells = append(cells, strings.TrimSpace(r.extractText(cell)))
+					cells = append(cells, strings.TrimSpace(extractText(cell, src)))
 				}
 			}
 			if len(cells) > 0 {
@@ -304,141 +371,221 @@ func (r *renderer) renderTable(n ast.Node) {
 	}
 
 	numCols := len(rows[0])
-	colW := r.w / float64(numCols)
-	ch := r.cfg.TableCellHeight
-	totalH := float64(len(rows)) * ch
-	r.ensureSpace(totalH + 4)
+	tableW := c.width - 2*c.margin
+	colW := tableW / numCols
+	rowH := mmToPx(c.cfg.TableCellHeight, c.cfg.DPI)
+	if rowH < 20 {
+		rowH = 20
+	}
 
-	y := r.pdf.GetY()
+	// Load header font
+	headerFamily := c.cfg.TableHeaderFont
+	if headerFamily == "" {
+		headerFamily = c.cfg.FontFamily
+	}
+	family := systemFonts[headerFamily]
+	if family.regular == "" {
+		family = systemFonts["Helvetica"]
+	}
+	headerFace := loadFace(family.bold, c.cfg.TableHeaderSize)
 
 	for ri, row := range rows {
+		c.ensureHeight(rowH + 10)
 		for ci := 0; ci < numCols && ci < len(row); ci++ {
-			x := r.cfg.MarginLeft + float64(ci)*colW
+			x := c.margin + ci*colW
+			y := c.y
 
+			// Background
+			var bg color.RGBA
 			if ri == 0 {
-				r.pdf.SetFillColor(r.cfg.TableHeaderBg.R, r.cfg.TableHeaderBg.G, r.cfg.TableHeaderBg.B)
-				r.pdf.SetTextColor(r.cfg.TableHeaderFg.R, r.cfg.TableHeaderFg.G, r.cfg.TableHeaderFg.B)
-				font := r.cfg.TableHeaderFont
-				if font == "" {
-					font = r.cfg.FontFamily
-				}
-				r.pdf.SetFont(font, "B", r.cfg.TableHeaderSize)
+				bg = c.cfg.TableHeaderBg.toRGBA()
+			} else if ri%2 == 0 {
+				bg = c.cfg.TableRowEven.toRGBA()
 			} else {
-				if ri%2 == 0 {
-					r.pdf.SetFillColor(r.cfg.TableRowEven.R, r.cfg.TableRowEven.G, r.cfg.TableRowEven.B)
-				} else {
-					r.pdf.SetFillColor(r.cfg.TableRowOdd.R, r.cfg.TableRowOdd.G, r.cfg.TableRowOdd.B)
-				}
-				r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
-				r.pdf.SetFont(r.cfg.FontFamily, "", r.cfg.TableHeaderSize)
+				bg = c.cfg.TableRowOdd.toRGBA()
 			}
+			c.drawRect(image.Rect(x, y, x+colW, y+rowH), bg)
 
-			r.pdf.SetXY(x, y)
-			r.pdf.CellFormat(colW, ch, "  "+row[ci], "1", 0, "L", true, 0, "")
+			// Borders
+			borderCol := color.RGBA{180, 180, 180, 255}
+			c.drawHorizontalLine(x, x+colW, y, borderCol, 0.5)
+			c.drawHorizontalLine(x, x+colW, y+rowH, borderCol, 0.5)
+			c.drawVerticalLine(x, y, y+rowH, borderCol)
+			c.drawVerticalLine(x+colW, y, y+rowH, borderCol)
+
+			// Text
+			fg := c.cfg.TextColor.toRGBA()
+			face := c.fonts.regular
+			if ri == 0 {
+				fg = c.cfg.TableHeaderFg.toRGBA()
+				face = headerFace
+			}
+			d := &font.Drawer{
+				Dst:  c.img,
+				Face: face,
+				Src:  image.NewUniform(fg),
+				Dot:  fixed.P(x+6, y+rowH-int(float64(rowH)*0.3)),
+			}
+			d.DrawString(row[ci])
 		}
-		y += ch
+		c.y += rowH
 	}
-	r.pdf.SetY(y + 4)
+	c.y += 8
 }
 
-func (r *renderer) renderList(n ast.Node) {
+func (c *canvas) renderList(n ast.Node, src []byte) {
 	l := n.(*ast.List)
-	r.pdf.SetFont(r.cfg.FontFamily, "", r.cfg.FontSize)
-	r.pdf.SetTextColor(r.cfg.TextColor.R, r.cfg.TextColor.G, r.cfg.TextColor.B)
+	face := c.fonts.regular
+	lh := faceHeight(face)
 	i := 1
 	for item := l.FirstChild(); item != nil; item = item.NextSibling() {
-		text := r.extractText(item)
-		bullet := "* "
+		text := extractText(item, src)
+		bullet := "• "
 		if l.IsOrdered() {
 			bullet = fmt.Sprintf("%d. ", i)
 			i++
 		}
-		r.ensureSpace(8)
-		r.pdf.MultiCell(r.w, 6, bullet+text, "", "L", false)
-		r.pdf.Ln(1)
+		c.drawString(bullet+text, face, c.cfg.TextColor.toRGBA())
+		c.y += lh + 2
 	}
-	r.pdf.Ln(3)
+	c.y += 4
 }
 
-func (r *renderer) renderBlockquote(n ast.Node) {
-	lc := r.cfg.BlockquoteLineColor
-	r.pdf.SetDrawColor(lc.R, lc.G, lc.B)
-	r.pdf.SetLineWidth(1)
-	y := r.pdf.GetY()
-	r.pdf.Line(r.cfg.MarginLeft+2, y, r.cfg.MarginLeft+2, y+6)
-	r.pdf.SetX(r.cfg.MarginLeft + 8)
-	font := r.cfg.BlockquoteFont
-	if font == "" {
-		font = r.cfg.FontFamily
+func (c *canvas) renderBlockquote(n ast.Node, src []byte) {
+	lc := c.cfg.BlockquoteLineColor.toRGBA()
+	c.drawVerticalLine(c.margin+2, c.y, c.y+20, lc)
+
+	saved := c.x
+	c.x = c.margin + 10
+	face := c.fonts.italic
+	if face == nil {
+		face = c.fonts.regular
 	}
-	r.pdf.SetFont(font, "I", r.cfg.FontSize)
-	tc := r.cfg.BlockquoteTextColor
-	r.pdf.SetTextColor(tc.R, tc.G, tc.B)
-	text := r.extractText(n)
-	r.ensureSpace(8)
-	r.pdf.MultiCell(r.w-10, 6, text, "", "L", false)
-	r.pdf.Ln(3)
+	text := extractText(n, src)
+	c.drawString(text, face, c.cfg.BlockquoteTextColor.toRGBA())
+	c.x = saved
+	c.y += faceHeight(face) + 4
 }
 
-func (r *renderer) renderHR() {
-	y := r.pdf.GetY()
-	hc := r.cfg.HRColor
-	r.pdf.SetDrawColor(hc.R, hc.G, hc.B)
-	r.pdf.SetLineWidth(r.cfg.HRLineWidth)
-	r.pdf.Line(r.cfg.MarginLeft, y, r.cfg.MarginLeft+r.w, y)
-	r.pdf.Ln(5)
+func (c *canvas) renderHR() {
+	y := c.y + 2
+	hc := c.cfg.HRColor.toRGBA()
+	lw := int(c.cfg.HRLineWidth * float64(c.cfg.DPI) / 25.4)
+	if lw < 1 {
+		lw = 1
+	}
+	c.drawHorizontalLine(c.margin, c.width-c.margin, y, hc, float64(lw))
+	c.y += 10
+}
+
+// --- Top-level render ---
+
+func (c *canvas) renderNodes(n ast.Node, src []byte) {
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		c.renderNode(child, src)
+	}
+}
+
+func (c *canvas) renderNode(n ast.Node, src []byte) {
+	switch n.Kind().String() {
+	case "Heading":
+		c.renderHeading(n, src)
+	case "Paragraph":
+		c.renderParagraph(n, src)
+	case "CodeBlock", "FencedCodeBlock":
+		c.renderCodeBlock(n, src)
+	case "Table":
+		c.renderTable(n, src)
+	case "List":
+		c.renderList(n, src)
+	case "Blockquote":
+		c.renderBlockquote(n, src)
+	case "ThematicBreak":
+		c.renderHR()
+	}
+}
+
+// extractText collects all text content from a node.
+func extractText(n ast.Node, src []byte) string {
+	var buf bytes.Buffer
+	ast.Walk(n, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			switch t := n.(type) {
+			case *ast.Text:
+				buf.Write(t.Segment.Value(src))
+			case *ast.String:
+				buf.Write(t.Value)
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return sanitize(buf.String())
 }
 
 // Render converts markdown input to a PNG file at the given output path.
-// It requires Ghostscript (gs) to be installed on the system.
-// Uses DefaultConfig(). For custom options, use RenderWithConfig.
 func Render(input, output string) error {
 	return RenderWithConfig(input, output, DefaultConfig())
 }
 
-// RenderWithConfig converts markdown input to a PNG or PDF file using the
-// given configuration. If cfg.AsPDF is true, output is a PDF file directly
-// (Ghostscript is not needed). Otherwise, Ghostscript converts the PDF to PNG.
+// RenderWithConfig converts markdown input to a PNG file using the given configuration.
 func RenderWithConfig(input, output string, cfg Config) error {
-	r := newRenderer(cfg)
-	r.src = []byte(input)
-	reader := text.NewReader(r.src)
-	doc := parser.Parse(reader)
-	r.renderNodes(doc)
+	c := newCanvas(cfg)
+	c.fillBackground()
 
-	pdfPath := strings.TrimSuffix(output, ".png") + ".pdf"
-	if err := r.pdf.OutputFileAndClose(pdfPath); err != nil {
-		return fmt.Errorf("PDF error: %w", err)
+	src := []byte(input)
+	reader := text.NewReader(src)
+	doc := parser.Parse(reader)
+	c.renderNodes(doc, src)
+
+	// Crop to content height.
+	bounds := c.img.Bounds()
+	contentH := c.y + 20 // some bottom padding
+	if contentH > bounds.Dy() {
+		contentH = bounds.Dy()
 	}
 
-	if cfg.AsPDF {
-		// Rename PDF to the requested output path if it differs
-		if pdfPath != output {
-			if err := os.Rename(pdfPath, output); err != nil {
-				return fmt.Errorf("PDF rename error: %w", err)
+	// Auto-crop to content bounds (left/right).
+	left, right := bounds.Dx(), 0
+	for y := 0; y < contentH; y++ {
+		for x := 0; x < bounds.Dx(); x++ {
+			r, g, b, a := c.img.At(x, y).RGBA()
+			if a < 128 {
+				continue
+			}
+			if r < 0xF000 || g < 0xF000 || b < 0xF000 {
+				if x < left {
+					left = x
+				}
+				if x > right {
+					right = x
+				}
 			}
 		}
-		return nil
 	}
 
-	defer os.Remove(pdfPath)
-
-	cmd := exec.Command("gs",
-		"-dNOPAUSE", "-dBATCH", "-dQUIET",
-		"-sDEVICE=png16m",
-		fmt.Sprintf("-r%d", cfg.DPI),
-		"-sOutputFile="+output, pdfPath,
-	)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("PNG conversion error (is ghostscript installed?): %w", err)
+	if left > right {
+		// Empty — write a 1x1 white pixel.
+		return writePNG(image.NewRGBA(image.Rect(0, 0, 1, 1)), output)
 	}
+
+	cropped := c.img.SubImage(image.Rect(0, 0, right+1, contentH))
 
 	if cfg.Trim {
-		if err := trimPNG(output, cfg.DPI, cfg.TrimPadding); err != nil {
-			return fmt.Errorf("trim error: %w", err)
-		}
+		return writeTrimmedPNG(cropped, output, cfg.DPI, cfg.TrimPadding)
 	}
 
-	return nil
+	// Convert back to RGBA for PNG encoding.
+	b := cropped.Bounds()
+	rgba := image.NewRGBA(b)
+	draw.Draw(rgba, b, cropped, b.Min, draw.Src)
+	return writePNG(rgba, output)
+}
+
+func writePNG(img *image.RGBA, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }
