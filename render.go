@@ -7,12 +7,14 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -81,6 +83,7 @@ type Config struct {
 	// Font
 	FontFamily string  // "Helvetica", "Times", or "Courier"
 	FontSize   float64 // Body text size in points
+	FontFile   string  // Optional TTF/OTF file for body text
 
 	// Page
 	PageWidth    float64 // Page width in mm (default: 210 = A4)
@@ -92,17 +95,20 @@ type Config struct {
 
 	// Text colors
 	TextColor Color // Default body text color
+	LinkColor Color // Link text color
 
 	// Heading colors and sizes
 	HeadingColor Color
 	HeadingSizes [6]float64
 	HeadingFont  string // Heading font family override
+	HeadingFile  string // Optional TTF/OTF file for headings
 	HeadingBold  bool   // Render headings in bold (default: true)
 
 	// Table
 	TableHeaderBg   Color
 	TableHeaderFg   Color
 	TableHeaderFont string
+	TableHeaderFile string
 	TableHeaderSize float64
 	TableCellHeight float64
 	TableAutoWidth  bool // size columns to fit content
@@ -112,6 +118,7 @@ type Config struct {
 	// Code block
 	CodeBg         Color
 	CodeFont       string
+	CodeFontFile   string
 	CodeFontSize   float64
 	CodeLineHeight float64
 
@@ -144,6 +151,7 @@ func DefaultConfig() Config {
 		MarginBottom: 15,
 
 		TextColor: Color{40, 40, 40},
+		LinkColor: Color{40, 80, 180},
 
 		HeadingColor: Color{40, 40, 80},
 		HeadingSizes: [6]float64{22, 18, 14, 12, 11, 11},
@@ -209,7 +217,7 @@ func newCanvas(cfg Config) *canvas {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
 
-	fonts := loadFonts(cfg.FontFamily, cfg.CodeFont, cfg.FontSize, cfg.CodeFontSize)
+	fonts := loadFonts(cfg)
 
 	return &canvas{
 		img:         img,
@@ -257,6 +265,7 @@ func (c *canvas) drawString(s string, face font.Face, col color.RGBA) {
 // drawStringAt draws text with a y-offset from the current c.y, using baseFaceH for
 // the baseline calculation so all inline elements sit on the same line.
 func (c *canvas) drawStringAt(s string, face font.Face, col color.RGBA, yOff int) {
+	s = sanitizeForFace(s, face)
 	d := &font.Drawer{
 		Dst:  c.img,
 		Face: face,
@@ -319,10 +328,7 @@ func (c *canvas) renderHeading(n ast.Node, src []byte) {
 	if fontFamily == "" {
 		fontFamily = c.cfg.FontFamily
 	}
-	family := systemFonts[fontFamily]
-	if family.regular == "" {
-		family = systemFonts["Helvetica"]
-	}
+	family := resolveFamily(fontFamily, c.cfg.HeadingFile)
 
 	face := loadFace(family.regular, size)
 	if c.cfg.HeadingBold {
@@ -347,53 +353,127 @@ func (c *canvas) renderParagraph(n ast.Node, src []byte) {
 }
 
 type inlineSegment struct {
-	text string
-	face font.Face
-	col  color.RGBA
+	text      string
+	face      font.Face
+	col       color.RGBA
+	underline bool
+	strike    bool
 }
 
 func (c *canvas) inlineSegments(n ast.Node, src []byte, baseFace font.Face, baseCol color.RGBA) []inlineSegment {
+	return c.inlineSegmentsStyled(n, src, baseFace, baseCol, false, false)
+}
+
+func (c *canvas) inlineSegmentsStyled(n ast.Node, src []byte, baseFace font.Face, baseCol color.RGBA, underline, strike bool) []inlineSegment {
 	var segments []inlineSegment
 	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-		switch child.Kind().String() {
-		case "Text":
-			t := child.(*ast.Text)
+		switch t := child.(type) {
+		case *ast.Text:
 			segments = append(segments, inlineSegment{
-				text: sanitize(string(t.Segment.Value(src))),
-				face: baseFace,
-				col:  baseCol,
+				text:      sanitizeForFace(string(t.Segment.Value(src)), baseFace),
+				face:      baseFace,
+				col:       baseCol,
+				underline: underline,
+				strike:    strike,
 			})
-		case "String":
-			s := child.(*ast.String)
+		case *ast.String:
 			segments = append(segments, inlineSegment{
-				text: sanitize(string(s.Value)),
-				face: baseFace,
-				col:  baseCol,
+				text:      sanitizeForFace(string(t.Value), baseFace),
+				face:      baseFace,
+				col:       baseCol,
+				underline: underline,
+				strike:    strike,
 			})
-		case "Emphasis":
-			em := child.(*ast.Emphasis)
+		case *ast.Emphasis:
 			face := baseFace
-			if em.Level == 2 {
+			if t.Level == 2 {
 				face = c.fonts.bold
-			} else if em.Level == 1 && c.fonts.italic != nil {
+			} else if t.Level == 1 && c.fonts.italic != nil {
 				face = c.fonts.italic
 			}
-			segments = append(segments, c.inlineSegments(child, src, face, baseCol)...)
-		case "CodeSpan":
-			codeFace := loadFace(systemFonts["Courier"].regular, c.cfg.FontSize)
+			segments = append(segments, c.inlineSegmentsStyled(child, src, face, baseCol, underline, strike)...)
+		case *ast.CodeSpan:
+			codeFace := loadFace(resolveFamily("Courier", "").regular, c.cfg.FontSize)
 			if codeFace == nil {
 				codeFace = c.fonts.code
 			}
 			segments = append(segments, inlineSegment{
-				text: extractText(child, src),
-				face: codeFace,
-				col:  c.cfg.TextColor.toRGBA(),
+				text:      sanitizeForFace(extractRawText(child, src), codeFace),
+				face:      codeFace,
+				col:       c.cfg.TextColor.toRGBA(),
+				underline: underline,
+				strike:    strike,
+			})
+		case *ast.Link:
+			segments = append(segments, c.inlineSegmentsStyled(child, src, baseFace, c.cfg.LinkColor.toRGBA(), true, strike)...)
+		case *east.Strikethrough:
+			segments = append(segments, c.inlineSegmentsStyled(child, src, baseFace, baseCol, underline, true)...)
+		case *east.TaskCheckBox:
+			text := "[ ]"
+			if t.IsChecked {
+				text = "[x]"
+			}
+			segments = append(segments, inlineSegment{
+				text:      text,
+				face:      baseFace,
+				col:       baseCol,
+				underline: underline,
+				strike:    strike,
 			})
 		default:
-			segments = append(segments, c.inlineSegments(child, src, baseFace, baseCol)...)
+			segments = append(segments, c.inlineSegmentsStyled(child, src, baseFace, baseCol, underline, strike)...)
 		}
 	}
 	return segments
+}
+
+func sanitizeForFace(s string, face font.Face) string {
+	var out strings.Builder
+	for _, r := range s {
+		if _, ok := face.GlyphAdvance(r); ok {
+			out.WriteRune(r)
+			continue
+		}
+		out.WriteString(fallbackGlyph(r))
+	}
+	return out.String()
+}
+
+func fallbackGlyph(r rune) string {
+	switch r {
+	case '\u2014', '\u2013':
+		return "-"
+	case '\u2026':
+		return "..."
+	case '\u2018', '\u2019':
+		return "'"
+	case '\u201c', '\u201d':
+		return "\""
+	case '\u2192':
+		return "->"
+	case '\u2190':
+		return "<-"
+	case '\u21d2':
+		return "=>"
+	case '\u2260':
+		return "!="
+	case '\u2264':
+		return "<="
+	case '\u2265':
+		return ">="
+	case '\u00d7':
+		return "x"
+	case '\u00f7':
+		return "/"
+	case '\u2022', '\u2605':
+		return "*"
+	case '\u2713', '\u2705':
+		return "[OK]"
+	case '\u2717', '\u274c':
+		return "[X]"
+	default:
+		return "?"
+	}
 }
 
 func (c *canvas) renderSegmentsWrapped(segments []inlineSegment, lineHeight int) {
@@ -401,7 +481,13 @@ func (c *canvas) renderSegmentsWrapped(segments []inlineSegment, lineHeight int)
 	for _, segment := range segments {
 		parts := strings.Split(segment.text, "\n")
 		for i, part := range parts {
-			c.renderWordsWrapped(part, segment.face, segment.col, lineHeight)
+			c.renderSegmentWordsWrapped(inlineSegment{
+				text:      part,
+				face:      segment.face,
+				col:       segment.col,
+				underline: segment.underline,
+				strike:    segment.strike,
+			}, lineHeight)
 			if i < len(parts)-1 {
 				c.newWrappedLine(lineHeight)
 			}
@@ -409,32 +495,36 @@ func (c *canvas) renderSegmentsWrapped(segments []inlineSegment, lineHeight int)
 	}
 }
 
-func (c *canvas) renderWordsWrapped(text string, face font.Face, col color.RGBA, lineHeight int) {
-	for _, word := range strings.Fields(text) {
+func (c *canvas) renderSegmentWordsWrapped(segment inlineSegment, lineHeight int) {
+	for _, word := range strings.Fields(segment.text) {
 		prefix := ""
 		if c.x > c.margin {
 			prefix = " "
 		}
-		c.drawWrappedToken(prefix+word, face, col, lineHeight)
+		part := segment
+		part.text = prefix + word
+		c.drawWrappedStyledToken(part, lineHeight)
 	}
 }
 
-func (c *canvas) drawWrappedToken(token string, face font.Face, col color.RGBA, lineHeight int) {
+func (c *canvas) drawWrappedStyledToken(segment inlineSegment, lineHeight int) {
 	maxX := c.contentRight()
-	if c.x > c.margin && c.x+measure(face, token) > maxX {
+	if c.x > c.margin && c.x+measure(segment.face, segment.text) > maxX {
 		c.newWrappedLine(lineHeight)
-		token = strings.TrimLeft(token, " ")
+		segment.text = strings.TrimLeft(segment.text, " ")
 	}
-	if measure(face, token) <= c.contentWidth() {
-		c.drawString(token, face, col)
+	if measure(segment.face, segment.text) <= c.contentWidth() {
+		c.drawStyledString(segment)
 		return
 	}
 
 	var chunk string
-	for _, r := range token {
+	for _, r := range segment.text {
 		next := chunk + string(r)
-		if chunk != "" && c.x+measure(face, next) > maxX {
-			c.drawString(chunk, face, col)
+		if chunk != "" && c.x+measure(segment.face, next) > maxX {
+			part := segment
+			part.text = chunk
+			c.drawStyledString(part)
 			c.newWrappedLine(lineHeight)
 			chunk = strings.TrimLeft(string(r), " ")
 			continue
@@ -442,7 +532,22 @@ func (c *canvas) drawWrappedToken(token string, face font.Face, col color.RGBA, 
 		chunk = next
 	}
 	if chunk != "" {
-		c.drawString(chunk, face, col)
+		segment.text = chunk
+		c.drawStyledString(segment)
+	}
+}
+
+func (c *canvas) drawStyledString(segment inlineSegment) {
+	startX := c.x
+	c.drawString(segment.text, segment.face, segment.col)
+	endX := c.x
+	if segment.underline {
+		y := c.y + faceHeight(segment.face) + 1
+		c.drawHorizontalLine(startX, endX, y, segment.col, 1)
+	}
+	if segment.strike {
+		y := c.y + faceHeight(segment.face)/2
+		c.drawHorizontalLine(startX, endX, y, segment.col, 1)
 	}
 }
 
@@ -523,14 +628,21 @@ func wrapHard(text string, face font.Face, maxWidth int) []string {
 }
 
 func (c *canvas) renderTable(n ast.Node, src []byte) {
-	var rows [][]string
+	type tableCell struct {
+		text  string
+		align east.Alignment
+	}
+	var rows [][]tableCell
 	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
 		kind := child.Kind().String()
 		if kind == "TableHeader" || kind == "TableRow" {
-			var cells []string
+			var cells []tableCell
 			for cell := child.FirstChild(); cell != nil; cell = cell.NextSibling() {
-				if cell.Kind().String() == "TableCell" {
-					cells = append(cells, strings.TrimSpace(extractText(cell, src)))
+				if tc, ok := cell.(*east.TableCell); ok {
+					cells = append(cells, tableCell{
+						text:  strings.TrimSpace(extractText(cell, src)),
+						align: tc.Alignment,
+					})
 				}
 			}
 			if len(cells) > 0 {
@@ -554,10 +666,7 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 	if headerFamily == "" {
 		headerFamily = c.cfg.FontFamily
 	}
-	family := systemFonts[headerFamily]
-	if family.regular == "" {
-		family = systemFonts["Helvetica"]
-	}
+	family := resolveFamily(headerFamily, c.cfg.TableHeaderFile)
 	headerFace := loadFace(family.bold, c.cfg.TableHeaderSize)
 
 	// Cell internal padding (pixels per side)
@@ -574,7 +683,7 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 					if ri == 0 {
 						face = headerFace
 					}
-					w := measure(face, row[ci])
+					w := measure(face, row[ci].text)
 					if w > maxW {
 						maxW = w
 					}
@@ -613,7 +722,7 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 			if maxTextW < 1 {
 				maxTextW = 1
 			}
-			rowLines[ci] = wrapWords(row[ci], face, maxTextW)
+			rowLines[ci] = wrapWords(row[ci].text, face, maxTextW)
 			lineH := faceHeight(face) + 2
 			cellH := len(rowLines[ci])*lineH + 2*cellPad
 			if cellH > rowH {
@@ -653,11 +762,19 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 			}
 			lineH := faceHeight(face) + 2
 			for li, line := range rowLines[ci] {
+				textW := measure(face, line)
+				textX := x + cellPad
+				switch row[ci].align {
+				case east.AlignCenter:
+					textX = x + (cw-textW)/2
+				case east.AlignRight:
+					textX = x + cw - cellPad - textW
+				}
 				d := &font.Drawer{
 					Dst:  c.img,
 					Face: face,
 					Src:  image.NewUniform(fg),
-					Dot:  fixed.P(x+cellPad, y+cellPad+faceHeight(face)+li*lineH),
+					Dot:  fixed.P(textX, y+cellPad+faceHeight(face)+li*lineH),
 				}
 				d.DrawString(line)
 			}
@@ -692,25 +809,48 @@ func wrapWords(text string, face font.Face, maxWidth int) []string {
 }
 
 func (c *canvas) renderList(n ast.Node, src []byte) {
+	c.renderListAt(n, src, 0)
+}
+
+func (c *canvas) renderListAt(n ast.Node, src []byte, indent int) {
 	l := n.(*ast.List)
 	face := c.fonts.regular
 	lh := faceHeight(face)
 	c.y += 2
 	i := 1
+	savedMargin := c.margin
+	c.margin = savedMargin + indent
+	c.x = c.margin
+	defer func() {
+		c.margin = savedMargin
+		c.x = c.margin
+	}()
+
 	for item := l.FirstChild(); item != nil; item = item.NextSibling() {
-		text := extractText(item, src)
 		bullet := "•  "
 		if l.IsOrdered() {
 			bullet = fmt.Sprintf("%d.  ", i)
 			i++
 		}
-		c.renderSegmentsWrapped([]inlineSegment{{
-			text: bullet + text,
+		segments := []inlineSegment{{
+			text: bullet,
 			face: face,
 			col:  c.cfg.TextColor.toRGBA(),
-		}}, lh+6)
+		}}
+		for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+			switch child.Kind().String() {
+			case "Paragraph":
+				segments = append(segments, c.inlineSegments(child, src, face, c.cfg.TextColor.toRGBA())...)
+			}
+		}
+		c.renderSegmentsWrapped(segments, lh+6)
 		c.x = c.margin
 		c.y += lh + 6
+		for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+			if child.Kind().String() == "List" {
+				c.renderListAt(child, src, indent+24)
+			}
+		}
 	}
 	c.y += 10
 }
@@ -785,6 +925,10 @@ func (c *canvas) renderNode(n ast.Node, src []byte) {
 
 // extractText collects all text content from a node.
 func extractText(n ast.Node, src []byte) string {
+	return extractRawText(n, src)
+}
+
+func extractRawText(n ast.Node, src []byte) string {
 	var buf bytes.Buffer
 	ast.Walk(n, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if entering {
@@ -797,7 +941,7 @@ func extractText(n ast.Node, src []byte) string {
 		}
 		return ast.WalkContinue, nil
 	})
-	return sanitize(buf.String())
+	return buf.String()
 }
 
 // Render converts markdown input to a PNG file at the given output path.
@@ -807,6 +951,24 @@ func Render(input, output string) error {
 
 // RenderWithConfig converts markdown input to a PNG file using the given configuration.
 func RenderWithConfig(input, output string, cfg Config) error {
+	img, err := RenderImage(input, cfg)
+	if err != nil {
+		return err
+	}
+	return writePNG(img, output)
+}
+
+// RenderPNG converts markdown input to PNG and writes it to w.
+func RenderPNG(w io.Writer, input string, cfg Config) error {
+	img, err := RenderImage(input, cfg)
+	if err != nil {
+		return err
+	}
+	return png.Encode(w, img)
+}
+
+// RenderImage converts markdown input to an image using the given configuration.
+func RenderImage(input string, cfg Config) (image.Image, error) {
 	c := newCanvas(cfg)
 	c.fillBackground()
 
@@ -843,7 +1005,7 @@ func RenderWithConfig(input, output string, cfg Config) error {
 
 	if left > right {
 		// Empty — write a 1x1 white pixel.
-		return writePNG(image.NewRGBA(image.Rect(0, 0, 1, 1)), output)
+		return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
 	}
 
 	// Ensure symmetric left/right padding in the crop.
@@ -854,17 +1016,20 @@ func RenderWithConfig(input, output string, cfg Config) error {
 	cropped := c.img.SubImage(image.Rect(0, 0, rightEdge, contentH))
 
 	if cfg.Trim {
-		return writeTrimmedPNG(cropped, output, cfg.DPI, cfg.TrimPadding)
+		return trimToContent(cropped, cfg.DPI, cfg.TrimPadding), nil
 	}
 
-	// Convert back to RGBA for PNG encoding.
-	b := cropped.Bounds()
-	rgba := image.NewRGBA(b)
-	draw.Draw(rgba, b, cropped, b.Min, draw.Src)
-	return writePNG(rgba, output)
+	return copyRGBA(cropped), nil
 }
 
-func writePNG(img *image.RGBA, path string) error {
+func copyRGBA(img image.Image) *image.RGBA {
+	b := img.Bounds()
+	rgba := image.NewRGBA(b)
+	draw.Draw(rgba, b, img, b.Min, draw.Src)
+	return rgba
+}
+
+func writePNG(img image.Image, path string) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err

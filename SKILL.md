@@ -17,7 +17,7 @@ markdown → goldmark (parser) → canvas (golang.org/x/image + image/draw) → 
 
 **No Ghostscript, no PDF intermediate.** The renderer draws directly to a Go image canvas using `golang.org/x/image/font` for TTF text and `image/draw` for shapes.
 
-**Fonts**: Loads system TTF fonts via `findFirst()` — checks macOS paths (`/Library/Fonts/`, `~/Library/Fonts/`) then Ubuntu paths (`/usr/share/fonts/truetype/`). Falls back to `golang.org/x/image/font/basicfont` (bitmap, fixed-size — smaller output on systems without TTF fonts).
+**Fonts**: Loads system TTF fonts via `findFirst()` and supports explicit TTF/OTF paths with `-font-file`, `-heading-font-file`, `-table-header-font-file`, and `-code-font-file`. Falls back to `golang.org/x/image/font/basicfont` if no configured font can be loaded.
 
 ## Install
 
@@ -44,7 +44,10 @@ echo "## Hello" | md2img -o output.png
 echo "## Hello" | md2img -o output.png -
 
 # With customization flags
-md2img -o dark.png -heading-color "#006600" -table-header-bg "#2d3748" -dpi 300 input.md
+md2img -o dark.png -theme dark -dpi 300 input.md
+
+# With a specific Unicode-capable font
+md2img -o unicode.png -font-file /path/to/NotoSans-Regular.ttf input.md
 
 # Auto-crop whitespace (tight around content)
 echo "| A | B |" | md2img -o tight.png -trim
@@ -58,11 +61,12 @@ md2img -o padded.png -trim -trim-padding 10 input.md
 Key groups:
 
 - **Output**: `-o`, `-trim`, `-trim-padding`, `-dpi`, `-version`
-- **Font**: `-font`, `-font-size`, `-heading-font`
+- **Theme**: `-theme` (`light`, `dark`, `github`, `slack`)
+- **Font**: `-font`, `-font-file`, `-font-size`, `-heading-font`, `-heading-font-file`
 - **Page**: `-page-w`, `-page-h`, `-margin`
-- **Colors** (all accept hex like `#333366`): `-text-color`, `-heading-color`, `-table-header-bg`, `-table-header-fg`, `-table-row-even`, `-table-row-odd`, `-code-bg`, `-blockquote-line-color`, `-blockquote-text-color`, `-hr-color`
-- **Table**: `-table-header-font`, `-table-header-size`, `-table-full-width` (opt-in to stretch tables across full width; default is auto-width fitting content)
-- **Code**: `-code-font`, `-code-font-size`
+- **Colors** (all accept hex like `#333366`): `-text-color`, `-link-color`, `-heading-color`, `-table-header-bg`, `-table-header-fg`, `-table-row-even`, `-table-row-odd`, `-code-bg`, `-blockquote-line-color`, `-blockquote-text-color`, `-hr-color`
+- **Table**: `-table-header-font`, `-table-header-font-file`, `-table-header-size`, `-table-full-width` (opt-in to stretch tables across full width; default is auto-width fitting content)
+- **Code**: `-code-font`, `-code-font-file`, `-code-font-size`
 
 **Note**: Input is a positional arg (not `-input`). Output is `-o` or `--output`. Stdin is used when no positional arg is given, or when the positional arg is `-`.
 
@@ -89,18 +93,21 @@ err := md2img.RenderWithConfig(input, output, cfg)
 
 - **Headers** (H1–H6) — bold, sized proportionally
 - **Tables** — auto-width by default (columns fit content), configurable header/row colors, cell borders, zebra striping. Use `-table-full-width` to stretch across page width.
-- **Bullet & numbered lists**
+- **Table alignment** — left, center, and right alignment markers.
+- **Bullet & numbered lists** — including nested lists.
+- **Task lists** — `[x]` and `[ ]` markers.
 - **Code blocks** — monospace font, configurable background
 - **Blockquotes** — configurable left border, italic
 - **Horizontal rules** — configurable color and thickness
 - **Bold**, **italic**, and `inline code` — full inline formatting support
+- **Links** — colored and underlined link text
+- **Strikethrough** — horizontal strike through text
 - **Inline code** — monospace font at body size for consistent baseline alignment
 
 ## Limitations
 
 - **No inline images** — only text-based rendering.
-- **No nested lists** — flat lists only.
-- **Font availability varies by platform** — macOS has good TTF coverage; Ubuntu needs `fonts-liberation` package for proper rendering.
+- **Font availability varies by platform** — pass `-font-file` for predictable Unicode rendering across machines.
 
 ## Agent Workflow
 

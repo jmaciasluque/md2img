@@ -26,8 +26,9 @@ func runWithArgs(args []string, stdin io.Reader, stdout io.Writer) error {
 	output := "/tmp/md2img_output.png"
 	version := false
 	tableFullWidth := false
+	theme := "light"
 
-	var textColor, headingColor string
+	var textColor, linkColor, headingColor string
 	var tableHeaderBg, tableHeaderFg, tableRowEven, tableRowOdd string
 	var codeBg, blockquoteLineColor, blockquoteTextColor, hrColor string
 	var margin float64
@@ -38,20 +39,25 @@ func runWithArgs(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs.StringVar(&output, "o", output, "output file path")
 	fs.StringVar(&output, "output", output, "output file path")
 	fs.BoolVar(&version, "version", false, "print version")
+	fs.StringVar(&theme, "theme", theme, "theme preset: light, dark, github, or slack")
 
 	fs.StringVar(&cfg.FontFamily, "font", cfg.FontFamily, "body font family")
+	fs.StringVar(&cfg.FontFile, "font-file", cfg.FontFile, "body font TTF/OTF path")
 	fs.Float64Var(&cfg.FontSize, "font-size", cfg.FontSize, "body font size in points")
 	fs.StringVar(&cfg.HeadingFont, "heading-font", cfg.HeadingFont, "heading font family")
+	fs.StringVar(&cfg.HeadingFile, "heading-font-file", cfg.HeadingFile, "heading font TTF/OTF path")
 
 	fs.Float64Var(&cfg.PageWidth, "page-w", cfg.PageWidth, "page width in mm")
 	fs.Float64Var(&cfg.PageHeight, "page-h", cfg.PageHeight, "page height in mm")
 	fs.Float64Var(&margin, "margin", cfg.MarginTop, "all margins in mm")
 
 	fs.StringVar(&textColor, "text-color", "", "body text color")
+	fs.StringVar(&linkColor, "link-color", "", "link text color")
 	fs.StringVar(&headingColor, "heading-color", "", "heading text color")
 	fs.StringVar(&tableHeaderBg, "table-header-bg", "", "table header background color")
 	fs.StringVar(&tableHeaderFg, "table-header-fg", "", "table header foreground color")
 	fs.StringVar(&cfg.TableHeaderFont, "table-header-font", cfg.TableHeaderFont, "table header font family")
+	fs.StringVar(&cfg.TableHeaderFile, "table-header-font-file", cfg.TableHeaderFile, "table header font TTF/OTF path")
 	fs.Float64Var(&cfg.TableHeaderSize, "table-header-size", cfg.TableHeaderSize, "table header font size")
 	fs.StringVar(&tableRowEven, "table-row-even", "", "even table row background color")
 	fs.StringVar(&tableRowOdd, "table-row-odd", "", "odd table row background color")
@@ -59,6 +65,7 @@ func runWithArgs(args []string, stdin io.Reader, stdout io.Writer) error {
 
 	fs.StringVar(&codeBg, "code-bg", "", "code block background color")
 	fs.StringVar(&cfg.CodeFont, "code-font", cfg.CodeFont, "code block font family")
+	fs.StringVar(&cfg.CodeFontFile, "code-font-file", cfg.CodeFontFile, "code block font TTF/OTF path")
 	fs.Float64Var(&cfg.CodeFontSize, "code-font-size", cfg.CodeFontSize, "code block font size")
 
 	fs.StringVar(&blockquoteLineColor, "blockquote-line-color", "", "blockquote line color")
@@ -84,9 +91,13 @@ func runWithArgs(args []string, stdin io.Reader, stdout io.Writer) error {
 	if tableFullWidth {
 		cfg.TableAutoWidth = false
 	}
+	if err := md2img.ApplyTheme(&cfg, theme); err != nil {
+		return err
+	}
 
 	if err := applyColors(&cfg, map[string]string{
 		"text-color":            textColor,
+		"link-color":            linkColor,
 		"heading-color":         headingColor,
 		"table-header-bg":       tableHeaderBg,
 		"table-header-fg":       tableHeaderFg,
@@ -127,6 +138,8 @@ func applyColors(cfg *md2img.Config, values map[string]string) error {
 		switch name {
 		case "text-color":
 			cfg.TextColor = c
+		case "link-color":
+			cfg.LinkColor = c
 		case "heading-color":
 			cfg.HeadingColor = c
 		case "table-header-bg":
@@ -177,6 +190,19 @@ func validateConfig(cfg md2img.Config, output string) error {
 	}
 	if cfg.TrimPadding < 0 {
 		return fmt.Errorf("invalid -trim-padding: must be 0 or greater")
+	}
+	for name, path := range map[string]string{
+		"font-file":              cfg.FontFile,
+		"heading-font-file":      cfg.HeadingFile,
+		"table-header-font-file": cfg.TableHeaderFile,
+		"code-font-file":         cfg.CodeFontFile,
+	} {
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("invalid -%s: %w", name, err)
+		}
 	}
 	return nil
 }

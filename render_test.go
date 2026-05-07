@@ -1,6 +1,8 @@
 package md2img
 
 import (
+	"bytes"
+	"image"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -79,6 +81,15 @@ func TestRenderTableSingleColumn(t *testing.T) {
 	requireFile(t, out)
 }
 
+func TestRenderTableAlignment(t *testing.T) {
+	md := `| Left | Center | Right |
+|:-----|:------:|------:|
+| a    | b      | c     |
+`
+	out := renderToFile(t, md, "table_align.png")
+	requireFile(t, out)
+}
+
 func TestRenderCodeBlock(t *testing.T) {
 	md := "```go\nfmt.Println(\"hello\")\n```"
 	out := renderToFile(t, md, "code.png")
@@ -103,6 +114,12 @@ func TestRenderOrderedList(t *testing.T) {
 	requireFile(t, out)
 }
 
+func TestRenderNestedAndTaskLists(t *testing.T) {
+	md := "- [x] Done\n  - Nested item\n- [ ] Todo"
+	out := renderToFile(t, md, "nested_tasks.png")
+	requireFile(t, out)
+}
+
 func TestRenderBlockquote(t *testing.T) {
 	md := "> This is a wise quote."
 	out := renderToFile(t, md, "quote.png")
@@ -115,8 +132,14 @@ func TestRenderHR(t *testing.T) {
 	requireFile(t, out)
 }
 
+func TestRenderLinksAndStrikethrough(t *testing.T) {
+	md := "Visit [example](https://example.com) and ~~remove this~~."
+	out := renderToFile(t, md, "links_strike.png")
+	requireFile(t, out)
+}
+
 func TestRenderUnicode(t *testing.T) {
-	md := "## café — 'hello'\n\n| ✓ | ✗ |\n|----|----|\n| ok | no |"
+	md := "## café — 'hello'\n\n| ✓ | ✗ |\n|----|----|\n| ok | no |\n\nEmoji: 😀"
 	out := renderToFile(t, md, "unicode.png")
 	requireFile(t, out)
 }
@@ -305,6 +328,29 @@ func TestRenderCustomDPI(t *testing.T) {
 	requireFile(t, out)
 }
 
+func TestRenderImageAPI(t *testing.T) {
+	img, err := RenderImage("# Image API", DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.Bounds() == image.Rect(0, 0, 0, 0) {
+		t.Fatal("RenderImage returned empty image bounds")
+	}
+}
+
+func TestRenderPNGAPI(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderPNG(&buf, "# PNG API", DefaultConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("RenderPNG wrote no bytes")
+	}
+	if _, err := png.Decode(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatalf("RenderPNG wrote invalid PNG: %v", err)
+	}
+}
+
 func TestRenderBlockquoteColors(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.BlockquoteLineColor = Color{R: 200, G: 0, B: 0}
@@ -439,5 +485,18 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.PageWidth != 210 || cfg.PageHeight != 297 {
 		t.Errorf("default page = %.0fx%.0f, want 210x297", cfg.PageWidth, cfg.PageHeight)
+	}
+}
+
+func TestApplyTheme(t *testing.T) {
+	cfg := DefaultConfig()
+	if err := ApplyTheme(&cfg, "dark"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TextColor == DefaultConfig().TextColor {
+		t.Fatal("dark theme did not update text color")
+	}
+	if err := ApplyTheme(&cfg, "missing"); err == nil {
+		t.Fatal("expected unknown theme error")
 	}
 }
