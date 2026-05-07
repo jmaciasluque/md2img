@@ -158,6 +158,36 @@ c, err := md2img.HexToColor("#333366")
 c := md2img.Color{R: 51, G: 51, B: 102}
 ```
 
+## Chat and AI agents
+
+Matrix, Slack, and most chat platforms don't render HTML tables — they weren't built for structured data. If you're an AI agent that needs to present a comparison or summary in a conversation, you're stuck with code blocks (ugly, no alignment) or images.
+
+md2img fills that gap: markdown in, styled PNG out, send it as a message attachment.
+
+```bash
+# Quick table for a chat message
+echo "| Model      | Speed    | Quality |
+|------------|----------|---------|
+| Qwen3-14B  | 11 tok/s | Good    |
+| Gemma3-12B | 13 tok/s | Good    |" | md2img -o /tmp/table.png
+
+# Then send MEDIA:/tmp/table.png in your message
+```
+
+Works for longer reports too:
+
+```bash
+cat << 'EOF' | md2img -o /tmp/report.png
+## Weekly Summary
+
+| Task            | Status  | Hours |
+|-----------------|---------|-------|
+| Blog post       | Done    | 4     |
+| API refactor    | In progress | 6 |
+| Deploy staging  | Blocked | 0     |
+EOF
+```
+
 ## Supported Markdown
 
 | Element | Rendering |
@@ -244,6 +274,13 @@ make build
 
 # Install locally
 make install
+
+# Run benchmarks
+go test -bench=. -benchmem -count=3 ./...
+
+# Compare against a previous run
+go test -bench=. -benchmem -count=5 ./... | tee new.txt
+benchstat old.txt new.txt
 ```
 
 ## License

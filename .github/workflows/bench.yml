@@ -1,0 +1,50 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bench:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install Ghostscript
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            brew install ghostscript
+          else
+            sudo apt-get update && sudo apt-get install -y ghostscript
+          fi
+
+      - name: Run benchmarks
+        run: |
+          go test -bench=. -benchmem -count=5 -timeout=300s ./... | tee bench-${{ runner.os }}.txt
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Summarize results
+        run: |
+          benchstat bench-${{ runner.os }}.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ runner.os }}
+          path: bench-${{ runner.os }}.txt
+          retention-days: 30
