@@ -68,7 +68,7 @@ echo "| A | B |" | md2img -o tight.png -trim
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-font`, `--font` | Body font family (`Helvetica`, `Times`, `Courier`) | `Helvetica` |
-| `-font-size`, `--font-size` | Body font size (points) | `11` |
+| `-font-size`, `--font-size` | Body font size (points) | `14` |
 | `-heading-font`, `--heading-font` | Heading font (empty = same as body) | (same as body) |
 
 ### Page Layout
@@ -78,6 +78,14 @@ echo "| A | B |" | md2img -o tight.png -trim
 | `-page-w`, `--page-w` | Page width in mm | `210` (A4) |
 | `-page-h`, `--page-h` | Page height in mm | `297` (A4) |
 | `-margin`, `--margin` | All margins in mm | `15` |
+
+### Table
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-table-full-width`, `--table-full-width` | Stretch table to fill available width | `false` (auto-width) |
+
+Tables auto-size to fit their content by default. Use `-table-full-width` to stretch across the full width between margins.
 
 ### Colors
 
@@ -90,12 +98,12 @@ All color flags accept hex values: `#333366`, `333366`, or shorthand `#fff`.
 | `-table-header-bg` | Table header background | `#323250` |
 | `-table-header-fg` | Table header text color | `#C8C8FF` |
 | `-table-header-font` | Table header font | (same as body) |
-| `-table-header-size` | Table header font size | `10` |
+| `-table-header-size` | Table header font size | `12` |
 | `-table-row-even` | Even table row background | `#F5F5FA` |
 | `-table-row-odd` | Odd table row background | `#FFFFFF` |
 | `-code-bg` | Code block background | `#F0F0F0` |
 | `-code-font` | Code block font | `Courier` |
-| `-code-font-size` | Code block font size | `9` |
+| `-code-font-size` | Code block font size | `11` |
 | `-blockquote-line-color` | Blockquote left border | `#6464C8` |
 | `-blockquote-text-color` | Blockquote text color | `#646464` |
 | `-hr-color` | Horizontal rule color | `#B4B4B4` |
@@ -120,6 +128,9 @@ echo "| A | B |" | md2img -o padded.png -trim -trim-padding 10
 
 # Times font, large text
 md2img -o big.png -font Times -font-size 16 -heading-font Helvetica input.md
+
+# Full-width table (stretches to fill page)
+echo "| A | B |\n|---|---|\n| 1 | 2 |" | md2img -o wide.png -table-full-width
 ```
 
 ## As a library
@@ -186,13 +197,14 @@ EOF
 | Element | Rendering |
 |---------|-----------|
 | Headers (H1–H6) | Bold, sized proportionally |
-| Tables | Configurable header/row colors, cell borders |
+| Tables | Auto-sized columns (or full-width), configurable header/row colors |
 | Bullet lists | `*` prefix |
 | Numbered lists | `1.` `2.` `3.` prefix |
 | Code blocks | Monospace font, configurable background |
 | Blockquotes | Configurable left border, italic |
 | Horizontal rules | Configurable color and thickness |
-| Bold / italic | Supported via markdown syntax |
+| Bold / italic | Supported inline within paragraphs |
+| Inline code | Monospace font at body text size |
 
 ## Limitations
 
@@ -205,12 +217,12 @@ EOF
 No external dependencies means fast rendering:
 
 ```
-BenchmarkRenderSimple      6.5ms    (was 116ms with Ghostscript — 18x faster)
-BenchmarkRenderTable      13.7ms    (was 117ms — 8.5x faster)
-BenchmarkRenderComplex    18.8ms    (was 122ms — 6.5x faster)
-BenchmarkRenderDPI100      7.1ms
-BenchmarkRenderDPI300     33.2ms
-BenchmarkRenderTrimmed    23.0ms
+BenchmarkRenderSimple       7.3ms    (was 116ms with Ghostscript — 16x faster)
+BenchmarkRenderTable        9.6ms    (was 117ms — 12x faster)
+BenchmarkRenderComplex     21.0ms    (was 122ms — 6x faster)
+BenchmarkRenderDPI100       8.5ms
+BenchmarkRenderDPI300      36.0ms
+BenchmarkRenderTrimmed     24.0ms
 ```
 
 ## Project Structure

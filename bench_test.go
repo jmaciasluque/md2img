@@ -52,6 +52,8 @@ func main() {
 
 Final notes go here.
 `
+
+	benchInline = `Paragraph with **bold**, *italic*, and ` + "`code`" + ` inline text.`
 )
 
 func benchRender(b *testing.B, md string, cfg *Config) {
@@ -99,4 +101,14 @@ func BenchmarkRenderTrimmed(b *testing.B) {
 	cfg := DefaultConfig()
 	cfg.Trim = true
 	benchRender(b, benchComplex, &cfg)
+}
+
+func BenchmarkRenderInline(b *testing.B) {
+	benchRender(b, benchInline, nil)
+}
+
+func BenchmarkRenderFullWidthTable(b *testing.B) {
+	cfg := DefaultConfig()
+	cfg.TableAutoWidth = false
+	benchRender(b, benchTable, &cfg)
 }
