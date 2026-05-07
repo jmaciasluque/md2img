@@ -285,6 +285,73 @@ func TestRenderTrim(t *testing.T) {
 	}
 }
 
+func TestRenderComplexAllElements(t *testing.T) {
+	md := `# Main Title
+
+## Sub heading
+
+Paragraph with **bold** and *italic* text, plus some ` + "`code`" + ` inline.
+
+| Feature    | Status  | Notes          |
+|------------|---------|----------------|
+| Tables     | Done    | Colored header |
+| Lists      | Done    | Bullet + ordered |
+| Code blocks| Done    | Monospace font |
+
+- Bullet item one
+- Bullet item two
+- Bullet item three
+
+1. First ordered
+2. Second ordered
+3. Third ordered
+
+> A blockquote with some wisdom.
+
+` + "```" + `
+func hello() {
+    fmt.Println("pure Go")
+}
+` + "```" + `
+
+---
+
+Final paragraph after a horizontal rule.
+`
+	out := renderToFile(t, md, "all_elements.png")
+	info := requireFile(t, out)
+	if info.Size() < 3000 {
+		t.Errorf("complex all-elements PNG too small: %d bytes", info.Size())
+	}
+}
+
+func TestRenderComplexAllElementsTrimmed(t *testing.T) {
+	md := `# Report
+
+| Col A | Col B | Col C |
+|-------|-------|-------|
+| 1     | 2     | 3     |
+| 4     | 5     | 6     |
+
+- Item one
+- Item two
+
+> Quote here.
+
+Done.
+`
+	cfg := DefaultConfig()
+	cfg.Trim = true
+	out := renderToFileWithConfig(t, md, "all_trimmed.png", cfg)
+	info := requireFile(t, out)
+	if info.Size() < 500 {
+		t.Errorf("trimmed all-elements PNG too small: %d bytes", info.Size())
+	}
+	if info.Size() > 20000 {
+		t.Errorf("trimmed all-elements PNG too large: %d bytes — trim may have failed", info.Size())
+	}
+}
+
 func TestHexToColor(t *testing.T) {
 	tests := []struct {
 		input string
