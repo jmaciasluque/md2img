@@ -73,6 +73,25 @@ func TestCLIStdin(t *testing.T) {
 	}
 }
 
+func TestCLIExplicitStdinDash(t *testing.T) {
+	outFile := filepath.Join(t.TempDir(), "stdin_dash.png")
+
+	cmd := exec.Command("go", "run", ".", "-o", outFile, "-")
+	cmd.Dir = filepath.Join(repoRoot(t), "cmd", "md2img")
+	cmd.Stdin = strings.NewReader("# Stdin Dash\n\nHello from explicit stdin.")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("CLI failed: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(string(out), "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+	if _, err := os.Stat(outFile); os.IsNotExist(err) {
+		t.Fatal("output file not created")
+	}
+}
+
 func TestCLIDefaultOutput(t *testing.T) {
 	mdFile := filepath.Join(t.TempDir(), "default.md")
 	if err := os.WriteFile(mdFile, []byte("# Default Output"), 0644); err != nil {
@@ -114,8 +133,7 @@ func TestCLIBadFile(t *testing.T) {
 
 func TestCLIFontFlag(t *testing.T) {
 	outFile := filepath.Join(t.TempDir(), "font.png")
-	out, err := runCLI(t, "-o", outFile, "-font", "Times", "-font-size", "14", "-",
-	)
+	out, err := runCLI(t, "-o", outFile, "-font", "Times", "-font-size", "14", "-")
 	if err == nil {
 		// If it didn't error, the flag was accepted
 		t.Log("font flag accepted (stdin was empty)")
@@ -208,8 +226,28 @@ func TestCLIBadDPIFlag(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid DPI")
 	}
+	if !strings.Contains(out, "invalid value") {
+		t.Errorf("expected DPI error, got: %q", out)
+	}
+}
+
+func TestCLINegativeDPIFlag(t *testing.T) {
+	out, err := runCLI(t, "-dpi", "-1", "-")
+	if err == nil {
+		t.Error("expected error for negative DPI")
+	}
 	if !strings.Contains(out, "invalid -dpi") {
 		t.Errorf("expected DPI error, got: %q", out)
+	}
+}
+
+func TestCLIMissingOutputValue(t *testing.T) {
+	out, err := runCLI(t, "--output")
+	if err == nil {
+		t.Error("expected error for missing output value")
+	}
+	if !strings.Contains(out, "flag needs an argument") {
+		t.Errorf("expected missing argument error, got: %q", out)
 	}
 }
 
@@ -218,7 +256,7 @@ func TestCLIUnknownFlag(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for unknown flag")
 	}
-	if !strings.Contains(out, "unknown flag") {
+	if !strings.Contains(out, "flag provided but not defined") {
 		t.Errorf("expected unknown flag error, got: %q", out)
 	}
 }

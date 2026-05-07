@@ -7,33 +7,6 @@ import (
 	"os"
 )
 
-// trimPNG reads a PNG, finds the bounding box of non-white content,
-// and rewrites it cropped with padding.
-func trimPNG(path string, dpi int, paddingMM float64) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	img, err := png.Decode(f)
-	if err != nil {
-		return err
-	}
-
-	nrgba := image.NewNRGBA(img.Bounds())
-	draw.Draw(nrgba, nrgba.Bounds(), img, img.Bounds().Min, draw.Src)
-
-	cropped := trimImage(nrgba, dpi, paddingMM)
-
-	out, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	return png.Encode(out, cropped)
-}
-
 // writeTrimmedPNG crops an image to its content bounds and writes it.
 func writeTrimmedPNG(img image.Image, path string, dpi int, paddingMM float64) error {
 	bounds := img.Bounds()
