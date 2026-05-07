@@ -153,14 +153,14 @@ func DefaultConfig() Config {
 		TableHeaderFg:   Color{200, 200, 255},
 		TableHeaderFont: "",
 		TableHeaderSize: 10,
-		TableCellHeight: 8,
+		TableCellHeight: 10,
 		TableRowEven:    Color{245, 245, 250},
 		TableRowOdd:     Color{255, 255, 255},
 
 		CodeBg:         Color{240, 240, 240},
 		CodeFont:       "Courier",
 		CodeFontSize:   9,
-		CodeLineHeight: 4.5,
+		CodeLineHeight: 5.5,
 
 		BlockquoteLineColor: Color{100, 100, 200},
 		BlockquoteTextColor: Color{100, 100, 100},
@@ -302,7 +302,7 @@ func (c *canvas) renderHeading(n ast.Node, src []byte) {
 	lh := faceHeight(face)
 	c.y += lh / 2
 	c.drawString(text, face, c.cfg.HeadingColor.toRGBA())
-	c.y += lh / 2 + 4
+	c.y += lh/2 + 10
 }
 
 func (c *canvas) renderParagraph(n ast.Node, src []byte) {
@@ -310,7 +310,7 @@ func (c *canvas) renderParagraph(n ast.Node, src []byte) {
 	face := c.fonts.regular
 	lh := faceHeight(face)
 	c.drawString(text, face, c.cfg.TextColor.toRGBA())
-	c.y += lh + 2
+	c.y += lh + 6
 }
 
 func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
@@ -331,7 +331,7 @@ func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
 	}
 
 	lh := mmToPx(c.cfg.CodeLineHeight, c.cfg.DPI)
-	padding := mmToPx(3, c.cfg.DPI)
+	padding := mmToPx(4, c.cfg.DPI)
 	blockH := len(lines)*lh + padding*2
 	lineH := faceHeight(c.fonts.code)
 
@@ -347,7 +347,7 @@ func (c *canvas) renderCodeBlock(n ast.Node, src []byte) {
 		c.y += lineH
 	}
 	c.x = c.margin
-	c.y += padding + 4
+	c.y += padding + 6
 }
 
 func (c *canvas) renderTable(n ast.Node, src []byte) {
@@ -424,39 +424,40 @@ func (c *canvas) renderTable(n ast.Node, src []byte) {
 				Dst:  c.img,
 				Face: face,
 				Src:  image.NewUniform(fg),
-				Dot:  fixed.P(x+6, y+rowH-int(float64(rowH)*0.3)),
+				Dot:  fixed.P(x+8, y+rowH-int(float64(rowH)*0.3)),
 			}
 			d.DrawString(row[ci])
 		}
 		c.y += rowH
 	}
-	c.y += 8
+	c.y += 10
 }
 
 func (c *canvas) renderList(n ast.Node, src []byte) {
 	l := n.(*ast.List)
 	face := c.fonts.regular
 	lh := faceHeight(face)
+	c.y += 2
 	i := 1
 	for item := l.FirstChild(); item != nil; item = item.NextSibling() {
 		text := extractText(item, src)
-		bullet := "• "
+		bullet := "•  "
 		if l.IsOrdered() {
-			bullet = fmt.Sprintf("%d. ", i)
+			bullet = fmt.Sprintf("%d.  ", i)
 			i++
 		}
 		c.drawString(bullet+text, face, c.cfg.TextColor.toRGBA())
-		c.y += lh + 2
+		c.y += lh + 3
 	}
-	c.y += 4
+	c.y += 6
 }
 
 func (c *canvas) renderBlockquote(n ast.Node, src []byte) {
 	lc := c.cfg.BlockquoteLineColor.toRGBA()
-	c.drawVerticalLine(c.margin+2, c.y, c.y+20, lc)
+	c.drawVerticalLine(c.margin+2, c.y, c.y+24, lc)
 
 	saved := c.x
-	c.x = c.margin + 10
+	c.x = c.margin + 14
 	face := c.fonts.italic
 	if face == nil {
 		face = c.fonts.regular
@@ -468,14 +469,15 @@ func (c *canvas) renderBlockquote(n ast.Node, src []byte) {
 }
 
 func (c *canvas) renderHR() {
-	y := c.y + 2
+	c.y += 8
+	y := c.y
 	hc := c.cfg.HRColor.toRGBA()
 	lw := int(c.cfg.HRLineWidth * float64(c.cfg.DPI) / 25.4)
 	if lw < 1 {
 		lw = 1
 	}
 	c.drawHorizontalLine(c.margin, c.width-c.margin, y, hc, float64(lw))
-	c.y += 10
+	c.y += 12
 }
 
 // --- Top-level render ---

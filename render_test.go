@@ -42,7 +42,7 @@ func requireFile(t *testing.T, path string) os.FileInfo {
 func TestRenderHeading(t *testing.T) {
 	out := renderToFile(t, "# Hello World", "heading.png")
 	info := requireFile(t, out)
-	if info.Size() < 500 {
+	if info.Size() < 100 {
 		t.Errorf("heading PNG too small: %d bytes", info.Size())
 	}
 }

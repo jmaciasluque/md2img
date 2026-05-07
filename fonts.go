@@ -17,38 +17,48 @@ type fontFamily struct {
 	boldItalic string
 }
 
-// systemFonts lists font search paths by family name.
+// systemFonts lists font search paths by family name, checked in order.
 var systemFonts = map[string]fontFamily{
 	"Helvetica": {
-		regular:     "/System/Library/Fonts/Supplemental/Arial.ttf",
-		bold:        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-		italic:      "/System/Library/Fonts/Supplemental/Arial Italic.ttf",
-		boldItalic:  "/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf",
+		regular:     findFirst("/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf"),
+		bold:        findFirst("/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf"),
+		italic:      findFirst("/System/Library/Fonts/Supplemental/Arial Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial_Italic.ttf"),
+		boldItalic:  findFirst("/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold_Italic.ttf"),
 	},
 	"Arial": {
-		regular:     "/System/Library/Fonts/Supplemental/Arial.ttf",
-		bold:        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-		italic:      "/System/Library/Fonts/Supplemental/Arial Italic.ttf",
-		boldItalic:  "/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf",
+		regular:     findFirst("/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf"),
+		bold:        findFirst("/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf"),
+		italic:      findFirst("/System/Library/Fonts/Supplemental/Arial Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial_Italic.ttf"),
+		boldItalic:  findFirst("/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold_Italic.ttf"),
 	},
 	"Times": {
-		regular:     "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-		bold:        "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf",
-		italic:      "/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf",
-		boldItalic:  "/System/Library/Fonts/Supplemental/Times New Roman Bold Italic.ttf",
+		regular:     findFirst("/System/Library/Fonts/Supplemental/Times New Roman.ttf", "/usr/share/fonts/truetype/msttcorefonts/times.ttf"),
+		bold:        findFirst("/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf", "/usr/share/fonts/truetype/msttcorefonts/timesbd.ttf"),
+		italic:      findFirst("/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/timesi.ttf"),
+		boldItalic:  findFirst("/System/Library/Fonts/Supplemental/Times New Roman Bold Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/timesbi.ttf"),
 	},
 	"Courier": {
-		regular:     "/System/Library/Fonts/Supplemental/Courier New.ttf",
-		bold:        "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",
-		italic:      "/System/Library/Fonts/Supplemental/Courier New Italic.ttf",
-		boldItalic:  "/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf",
+		regular:     findFirst("/System/Library/Fonts/Supplemental/Courier New.ttf", "/usr/share/fonts/truetype/msttcorefonts/cour.ttf"),
+		bold:        findFirst("/System/Library/Fonts/Supplemental/Courier New Bold.ttf", "/usr/share/fonts/truetype/msttcorefonts/courbd.ttf"),
+		italic:      findFirst("/System/Library/Fonts/Supplemental/Courier New Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/couri.ttf"),
+		boldItalic:  findFirst("/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/courbi.ttf"),
 	},
 	"Courier New": {
-		regular:     "/System/Library/Fonts/Supplemental/Courier New.ttf",
-		bold:        "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",
-		italic:      "/System/Library/Fonts/Supplemental/Courier New Italic.ttf",
-		boldItalic:  "/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf",
+		regular:     findFirst("/System/Library/Fonts/Supplemental/Courier New.ttf", "/usr/share/fonts/truetype/msttcorefonts/cour.ttf"),
+		bold:        findFirst("/System/Library/Fonts/Supplemental/Courier New Bold.ttf", "/usr/share/fonts/truetype/msttcorefonts/courbd.ttf"),
+		italic:      findFirst("/System/Library/Fonts/Supplemental/Courier New Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/couri.ttf"),
+		boldItalic:  findFirst("/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf", "/usr/share/fonts/truetype/msttcorefonts/courbi.ttf"),
 	},
+}
+
+// findFirst returns the first path that exists on disk.
+func findFirst(paths ...string) string {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // loadFace loads a TTF font at the given size. Falls back to basicfont.
