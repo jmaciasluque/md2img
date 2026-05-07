@@ -287,6 +287,18 @@ func TestRenderHRColor(t *testing.T) {
 	requireFile(t, out)
 }
 
+func TestRenderTrim(t *testing.T) {
+	md := "# Title\n\n| A | B |\n|---|---|\n| 1 | 2 |"
+	cfg := DefaultConfig()
+	cfg.Trim = true
+	out := renderToFileWithConfig(t, md, "trimmed.png", cfg)
+	info := requireFile(t, out)
+	// Trimmed output should be significantly smaller than full page.
+	if info.Size() > 5000 {
+		t.Errorf("trimmed PNG too large (%d bytes) — trim may not have worked", info.Size())
+	}
+}
+
 func TestHexToColor(t *testing.T) {
 	tests := []struct {
 		input string

@@ -229,6 +229,8 @@ func run() error {
 			}
 		case "-pdf", "--pdf":
 			cfg.AsPDF = true
+		case "-trim", "--trim":
+			cfg.Trim = true
 
 		default:
 			if strings.HasPrefix(args[i], "-") {

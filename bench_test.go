@@ -100,3 +100,9 @@ func BenchmarkRenderDPI300(b *testing.B) {
 	cfg.DPI = 300
 	benchRender(b, benchComplex, &cfg)
 }
+
+func BenchmarkRenderTrimmed(b *testing.B) {
+	cfg := DefaultConfig()
+	cfg.Trim = true
+	benchRender(b, benchComplex, &cfg)
+}

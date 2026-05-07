@@ -67,6 +67,7 @@ echo "# Hello" | md2img
 |------|-------------|---------|
 | `-o`, `--output` | Output file path | `/tmp/md2img_output.png` |
 | `-pdf`, `--pdf` | Output PDF directly (no Ghostscript needed) | `false` |
+| `-trim`, `--trim` | Auto-crop whitespace from PNG output | `false` |
 | `-dpi`, `--dpi` | PNG resolution (DPI) | `200` |
 | `-version`, `--version` | Print version | — |
 
@@ -125,6 +126,9 @@ md2img -o report.png -page-w 215.9 -page-h 279.4 -dpi 300 report.md
 # Direct PDF output (no Ghostscript needed)
 echo "# Title" | md2img -o output.pdf -pdf
 
+# Trim whitespace (tight crop around content)
+echo "| A | B |" | md2img -o tight.png -trim
+
 # Times font, large text
 md2img -o big.png -font Times -font-size 16 -heading-font Helvetica input.md
 ```
@@ -144,6 +148,7 @@ cfg.FontFamily = "Times"
 cfg.TableHeaderBg = md2img.Color{R: 45, G: 55, B: 72}
 cfg.TableHeaderFg = md2img.Color{R: 226, G: 232, B: 240}
 cfg.AsPDF = true  // output PDF directly
+cfg.Trim = true   // auto-crop whitespace
 
 err := md2img.RenderWithConfig("# Report\n\n| A | B |\n|---|---|\n| 1 | 2 |", "report.pdf", cfg)
 ```

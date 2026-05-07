@@ -86,6 +86,10 @@ jobs:
           printf 'go\nfmt.Println("hello")\n' | ./md2img -o /tmp/test_code.png -code-bg "#2d2d2d" -code-font Courier
           echo "✓ Code block rendering"
 
+          # Trim whitespace
+          echo -e "| A | B |\n|---|---|\n| 1 | 2 |" | ./md2img -o /tmp/test_trim.png -trim
+          echo "✓ Trim whitespace"
+
           # Version flag
           ./md2img -version
           echo "✓ Version flag"

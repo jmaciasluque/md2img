@@ -100,6 +100,7 @@ type Config struct {
 	// Output
 	DPI     int    // Ghostscript DPI (default: 200)
 	AsPDF   bool   // Output PDF instead of PNG
+	Trim    bool   // Auto-crop whitespace from PNG output
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -428,6 +429,12 @@ func RenderWithConfig(input, output string, cfg Config) error {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("PNG conversion error (is ghostscript installed?): %w", err)
+	}
+
+	if cfg.Trim {
+		if err := trimPNG(output, cfg.DPI); err != nil {
+			return fmt.Errorf("trim error: %w", err)
+		}
 	}
 
 	return nil
