@@ -1,8 +1,10 @@
 package md2img
 
 import (
+	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -170,6 +172,54 @@ func TestRenderLongDocument(t *testing.T) {
 	// Should produce a multi-page PDF converted to PNG
 	if info.Size() < 5000 {
 		t.Errorf("long doc PNG too small: %d bytes", info.Size())
+	}
+}
+
+func TestRenderVeryLongDocumentGrowsCanvas(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.DPI = 50
+	cfg.PageHeight = 50
+	initialPageHeight := mmToPx(cfg.PageHeight, cfg.DPI)
+
+	var md strings.Builder
+	md.WriteString("# Long\n\n")
+	for i := 0; i < 40; i++ {
+		md.WriteString("This paragraph should force the image canvas to grow beyond the initial page height.\n\n")
+	}
+
+	out := renderToFileWithConfig(t, md.String(), "very_long.png", cfg)
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.Bounds().Dy() <= initialPageHeight {
+		t.Fatalf("image height = %d, want greater than initial page height %d", img.Bounds().Dy(), initialPageHeight)
+	}
+}
+
+func TestRenderLongParagraphWraps(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.DPI = 100
+	cfg.Trim = true
+
+	md := strings.Repeat("word ", 120)
+	out := renderToFileWithConfig(t, md, "wrapped_para.png", cfg)
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.Bounds().Dy() < 120 {
+		t.Fatalf("wrapped paragraph height = %d, want at least 120px", img.Bounds().Dy())
 	}
 }
 
@@ -363,7 +413,7 @@ func TestHexToColor(t *testing.T) {
 		{"#fff", Color{255, 255, 255}, false},
 		{"#GG0000", Color{}, true},
 		{"abc", Color{170, 187, 204}, false}, // 3-char shorthand → aabbcc
-		{"12", Color{}, true},   // too short
+		{"12", Color{}, true},                // too short
 	}
 	for _, tt := range tests {
 		c, err := HexToColor(tt.input)

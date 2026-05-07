@@ -217,17 +217,17 @@ EOF
 
 ## Benchmarks
 
-No external dependencies keeps rendering simple, but the renderer currently allocates a full high-DPI page canvas. These results are from an Apple M4 at Go 1.26.2:
+No external dependencies keeps rendering simple. These results are from an Apple M4 at Go 1.26.2:
 
 ```
-BenchmarkRenderSimple          15.4ms    67.4MB/op
-BenchmarkRenderTable           20.3ms    68.8MB/op
-BenchmarkRenderComplex         45.3ms    76.2MB/op
-BenchmarkRenderDPI100          19.8ms    26.8MB/op
-BenchmarkRenderDPI300          76.4ms   157.8MB/op
-BenchmarkRenderTrimmed         52.7ms    76.2MB/op
-BenchmarkRenderInline          16.1ms    67.4MB/op
-BenchmarkRenderFullWidthTable  30.5ms    70.9MB/op
+BenchmarkRenderSimple           7.1ms    21.0MB/op
+BenchmarkRenderTable           12.4ms    22.4MB/op
+BenchmarkRenderComplex         41.1ms    30.7MB/op
+BenchmarkRenderDPI100          20.1ms    15.8MB/op
+BenchmarkRenderDPI300          71.0ms    55.5MB/op
+BenchmarkRenderTrimmed         48.2ms    30.7MB/op
+BenchmarkRenderInline           7.5ms    20.3MB/op
+BenchmarkRenderFullWidthTable  22.1ms    24.6MB/op
 ```
 
 ## Project Structure
