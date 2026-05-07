@@ -68,6 +68,7 @@ echo "# Hello" | md2img
 | `-o`, `--output` | Output file path | `/tmp/md2img_output.png` |
 | `-pdf`, `--pdf` | Output PDF directly (no Ghostscript needed) | `false` |
 | `-trim`, `--trim` | Auto-crop whitespace from PNG output | `false` |
+| `-trim-padding`, `--trim-padding` | Padding around content after trim (mm) | `5` |
 | `-dpi`, `--dpi` | PNG resolution (DPI) | `200` |
 | `-version`, `--version` | Print version | — |
 
@@ -128,6 +129,9 @@ echo "# Title" | md2img -o output.pdf -pdf
 
 # Trim whitespace (tight crop around content)
 echo "| A | B |" | md2img -o tight.png -trim
+
+# Trim with custom padding (in mm)
+echo "| A | B |" | md2img -o padded.png -trim -trim-padding 10
 
 # Times font, large text
 md2img -o big.png -font Times -font-size 16 -heading-font Helvetica input.md
