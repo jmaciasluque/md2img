@@ -8,8 +8,8 @@ import (
 )
 
 // trimPNG reads a PNG, finds the bounding box of non-white content,
-// and rewrites it cropped with a small padding.
-func trimPNG(path string, dpi int) error {
+// and rewrites it cropped with padding.
+func trimPNG(path string, dpi int, paddingMM float64) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -24,10 +24,10 @@ func trimPNG(path string, dpi int) error {
 	bounds := img.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 
-	// Padding: ~5mm worth of pixels
-	padding := int(float64(dpi) * 5.0 / 25.4)
-	if padding < 4 {
-		padding = 4
+	// Padding in pixels.
+	padding := int(float64(dpi) * paddingMM / 25.4)
+	if padding < 1 {
+		padding = 1
 	}
 
 	// Convert to NRGBA for direct Pix buffer access (no per-pixel interface dispatch).

@@ -98,9 +98,10 @@ type Config struct {
 	HRLineWidth float64 // HR line thickness in mm
 
 	// Output
-	DPI     int    // Ghostscript DPI (default: 200)
-	AsPDF   bool   // Output PDF instead of PNG
-	Trim    bool   // Auto-crop whitespace from PNG output
+	DPI        int     // Ghostscript DPI (default: 200)
+	AsPDF      bool    // Output PDF instead of PNG
+	Trim       bool    // Auto-crop whitespace from PNG output
+	TrimPadding float64 // Padding around content after trim, in mm (default: 5)
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -142,8 +143,10 @@ func DefaultConfig() Config {
 		HRColor:     Color{180, 180, 180},
 		HRLineWidth: 0.3,
 
-		DPI:   200,
-		AsPDF: false,
+		DPI:        200,
+		AsPDF:      false,
+		Trim:       false,
+		TrimPadding: 5,
 	}
 }
 
@@ -432,7 +435,7 @@ func RenderWithConfig(input, output string, cfg Config) error {
 	}
 
 	if cfg.Trim {
-		if err := trimPNG(output, cfg.DPI); err != nil {
+		if err := trimPNG(output, cfg.DPI, cfg.TrimPadding); err != nil {
 			return fmt.Errorf("trim error: %w", err)
 		}
 	}

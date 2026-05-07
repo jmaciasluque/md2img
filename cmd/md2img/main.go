@@ -231,6 +231,15 @@ func run() error {
 			cfg.AsPDF = true
 		case "-trim", "--trim":
 			cfg.Trim = true
+		case "-trim-padding", "--trim-padding":
+			if i+1 < len(args) {
+				v, err := strconv.ParseFloat(args[i+1], 64)
+				if err != nil {
+					return fmt.Errorf("invalid -trim-padding: %v", err)
+				}
+				cfg.TrimPadding = v
+				i++
+			}
 
 		default:
 			if strings.HasPrefix(args[i], "-") {
