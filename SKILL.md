@@ -1,8 +1,8 @@
 ---
 name: md2img
-description: Convert markdown to styled PNG images via a compiled Go binary. Renders tables, headers, code blocks, lists, blockquotes to dark/light themed images for sharing on Matrix/chat.
+description: Convert markdown to styled PNG images via a compiled Go binary. Renders tables, headers, code blocks, lists, blockquotes to styled images for Matrix, Slack, Discord, and any platform that doesn't render HTML.
 category: creative
-tags: [markdown, png, image, rendering, matrix]
+tags: [markdown, png, image, rendering, matrix, slack, discord, telegram]
 ---
 
 # md2img — Markdown to PNG
