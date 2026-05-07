@@ -100,7 +100,6 @@ err := md2img.RenderWithConfig(input, output, cfg)
 
 - **No inline images** — only text-based rendering.
 - **No nested lists** — flat lists only.
-- **No word wrapping yet** — long paragraphs, code lines, and table cells can clip at the canvas edge.
 - **Font availability varies by platform** — macOS has good TTF coverage; Ubuntu needs `fonts-liberation` package for proper rendering.
 
 ## Agent Workflow
@@ -108,7 +107,7 @@ err := md2img.RenderWithConfig(input, output, cfg)
 1. Check `md2img -version` or build with `make build`.
 2. Render markdown with `-trim` for chat attachments unless full-page output is needed.
 3. Verify the output path exists and is non-empty before sending or attaching it.
-4. For wide tables or long prose, inspect the PNG because current rendering does not wrap text.
+4. For wide tables or long prose, inspect the PNG to confirm the wrapped layout is readable.
 
 ## Source & Repo
 
