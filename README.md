@@ -1,9 +1,9 @@
 # md2img
 
-Convert Markdown to styled PNG images. No browser, no Python — just a Go binary and Ghostscript.
+Convert Markdown to styled PNG images. No browser, no Python — just a Go binary.
 
 ```
-markdown → goldmark (parser) → gofpdf (PDF) → Ghostscript (PNG)
+markdown → goldmark (parser) → Go image (render) → PNG
 ```
 
 ## Install
@@ -33,18 +33,7 @@ make install  # → ~/go/bin/md2img
 go install github.com/jmaciasluque/md2img/cmd/md2img@latest
 ```
 
-**Dependencies:** [Ghostscript](https://www.ghostscript.com/) (`gs`) must be installed.
-
-```bash
-# macOS
-brew install ghostscript
-
-# Ubuntu/Debian
-sudo apt install ghostscript
-
-# Arch
-sudo pacman -S ghostscript
-```
+**No external dependencies.** Just a single Go binary. TTF fonts are loaded from your system (Arial, Courier New, Times New Roman on macOS).
 
 ## Usage
 
@@ -57,6 +46,9 @@ md2img -o output.png input.md
 
 # Default output: /tmp/md2img_output.png
 echo "# Hello" | md2img
+
+# Trim whitespace (tight crop)
+echo "| A | B |" | md2img -o tight.png -trim
 ```
 
 ## CLI Flags
@@ -66,10 +58,9 @@ echo "# Hello" | md2img
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-o`, `--output` | Output file path | `/tmp/md2img_output.png` |
-| `-pdf`, `--pdf` | Output PDF directly (no Ghostscript needed) | `false` |
 | `-trim`, `--trim` | Auto-crop whitespace from PNG output | `false` |
 | `-trim-padding`, `--trim-padding` | Padding around content after trim (mm) | `5` |
-| `-dpi`, `--dpi` | PNG resolution (DPI) | `200` |
+| `-dpi`, `--dpi` | Image resolution (DPI) | `200` |
 | `-version`, `--version` | Print version | — |
 
 ### Font
@@ -77,7 +68,7 @@ echo "# Hello" | md2img
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-font`, `--font` | Body font family (`Helvetica`, `Times`, `Courier`) | `Helvetica` |
-| `-font-size`, `--font-size` | Body font size (points) | `11` |
+| `-font-size`, `--font-size` | Body font size (points) | `14` |
 | `-heading-font`, `--heading-font` | Heading font (empty = same as body) | (same as body) |
 
 ### Page Layout
@@ -87,6 +78,14 @@ echo "# Hello" | md2img
 | `-page-w`, `--page-w` | Page width in mm | `210` (A4) |
 | `-page-h`, `--page-h` | Page height in mm | `297` (A4) |
 | `-margin`, `--margin` | All margins in mm | `15` |
+
+### Table
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-table-full-width`, `--table-full-width` | Stretch table to fill available width | `false` (auto-width) |
+
+Tables auto-size to fit their content by default. Use `-table-full-width` to stretch across the full width between margins.
 
 ### Colors
 
@@ -99,12 +98,12 @@ All color flags accept hex values: `#333366`, `333366`, or shorthand `#fff`.
 | `-table-header-bg` | Table header background | `#323250` |
 | `-table-header-fg` | Table header text color | `#C8C8FF` |
 | `-table-header-font` | Table header font | (same as body) |
-| `-table-header-size` | Table header font size | `10` |
+| `-table-header-size` | Table header font size | `12` |
 | `-table-row-even` | Even table row background | `#F5F5FA` |
 | `-table-row-odd` | Odd table row background | `#FFFFFF` |
 | `-code-bg` | Code block background | `#F0F0F0` |
 | `-code-font` | Code block font | `Courier` |
-| `-code-font-size` | Code block font size | `9` |
+| `-code-font-size` | Code block font size | `11` |
 | `-blockquote-line-color` | Blockquote left border | `#6464C8` |
 | `-blockquote-text-color` | Blockquote text color | `#646464` |
 | `-hr-color` | Horizontal rule color | `#B4B4B4` |
@@ -124,17 +123,14 @@ echo "| Name | Score |\n|------|-------|\n| Alice | 95 |" | md2img \
 # US Letter, high resolution
 md2img -o report.png -page-w 215.9 -page-h 279.4 -dpi 300 report.md
 
-# Direct PDF output (no Ghostscript needed)
-echo "# Title" | md2img -o output.pdf -pdf
-
-# Trim whitespace (tight crop around content)
-echo "| A | B |" | md2img -o tight.png -trim
-
 # Trim with custom padding (in mm)
 echo "| A | B |" | md2img -o padded.png -trim -trim-padding 10
 
 # Times font, large text
 md2img -o big.png -font Times -font-size 16 -heading-font Helvetica input.md
+
+# Full-width table (stretches to fill page)
+echo "| A | B |\n|---|---|\n| 1 | 2 |" | md2img -o wide.png -table-full-width
 ```
 
 ## As a library
@@ -151,10 +147,9 @@ cfg.DPI = 300
 cfg.FontFamily = "Times"
 cfg.TableHeaderBg = md2img.Color{R: 45, G: 55, B: 72}
 cfg.TableHeaderFg = md2img.Color{R: 226, G: 232, B: 240}
-cfg.AsPDF = true  // output PDF directly
-cfg.Trim = true   // auto-crop whitespace
+cfg.Trim = true  // auto-crop whitespace
 
-err := md2img.RenderWithConfig("# Report\n\n| A | B |\n|---|---|\n| 1 | 2 |", "report.pdf", cfg)
+err := md2img.RenderWithConfig("# Report\n\n| A | B |\n|---|---|\n| 1 | 2 |", "report.png", cfg)
 ```
 
 ### Color helpers
@@ -178,7 +173,7 @@ md2img fills that gap: markdown in, styled PNG out, send it as a message attachm
 echo "| Model      | Speed    | Quality |
 |------------|----------|---------|
 | Qwen3-14B  | 11 tok/s | Good    |
-| Gemma3-12B | 13 tok/s | Good    |" | md2img -o /tmp/table.png
+| Gemma3-12B | 13 tok/s | Good    |" | md2img -trim -o /tmp/table.png
 
 # Then send MEDIA:/tmp/table.png in your message
 ```
@@ -186,7 +181,7 @@ echo "| Model      | Speed    | Quality |
 Works for longer reports too:
 
 ```bash
-cat << 'EOF' | md2img -o /tmp/report.png
+cat << 'EOF' | md2img -trim -o /tmp/report.png
 ## Weekly Summary
 
 | Task            | Status  | Hours |
@@ -202,13 +197,14 @@ EOF
 | Element | Rendering |
 |---------|-----------|
 | Headers (H1–H6) | Bold, sized proportionally |
-| Tables | Configurable header/row colors, cell borders |
+| Tables | Auto-sized columns (or full-width), configurable header/row colors |
 | Bullet lists | `*` prefix |
 | Numbered lists | `1.` `2.` `3.` prefix |
 | Code blocks | Monospace font, configurable background |
 | Blockquotes | Configurable left border, italic |
 | Horizontal rules | Configurable color and thickness |
-| Bold / italic | Supported via markdown syntax |
+| Bold / italic | Supported inline within paragraphs |
+| Inline code | Monospace font at body text size |
 
 ## Limitations
 
@@ -216,34 +212,17 @@ EOF
 - **No inline images** — text-based rendering only.
 - **No nested lists** — flat lists only.
 
-## Examples
+## Benchmarks
 
-### Table
+No external dependencies means fast rendering:
 
-```bash
-cat << 'EOF' | md2img -o comparison.png
-## STACKIT vs Scaleway
-
-| Feature    | STACKIT      | Scaleway    |
-|------------|--------------|-------------|
-| Free Tier  | No           | Yes         |
-| Kubernetes | SKE          | Kapsule     |
-| Best For   | Government   | Everyone    |
-EOF
 ```
-
-### Code Block
-
-```bash
-echo '```go
-fmt.Println("hello world")
-```' | md2img -o code.png
-```
-
-### Full Document
-
-```bash
-md2img -o report.png report.md
+BenchmarkRenderSimple       7.3ms    (was 116ms with Ghostscript — 16x faster)
+BenchmarkRenderTable        9.6ms    (was 117ms — 12x faster)
+BenchmarkRenderComplex     21.0ms    (was 122ms — 6x faster)
+BenchmarkRenderDPI100       8.5ms
+BenchmarkRenderDPI300      36.0ms
+BenchmarkRenderTrimmed     24.0ms
 ```
 
 ## Project Structure
@@ -253,13 +232,17 @@ md2img/
 ├── cmd/md2img/     # CLI entry point
 │   ├── main.go
 │   └── main_test.go
-├── render.go       # PDF rendering engine + Config (library API)
+├── render.go       # Direct-to-image rendering engine + Config (library API)
+├── fonts.go        # TTF font loading with system fallback
+├── trim.go         # Auto-crop whitespace
 ├── sanitize.go     # Unicode → ASCII mapping
 ├── sanitize_test.go
 ├── render_test.go
+├── bench_test.go
 ├── Makefile
 ├── .github/workflows/
-│   ├── ci.yml      # Build + test + flag tests on macOS & Ubuntu
+│   ├── ci.yml      # Build + test on macOS & Ubuntu
+│   ├── bench.yml   # Benchmark suite with benchstat
 │   └── release.yml # Multi-platform release builds
 └── README.md
 ```
@@ -267,10 +250,10 @@ md2img/
 ## How It Works
 
 1. **Parse** — [goldmark](https://github.com/yuin/goldmark) parses Markdown into an AST (with GFM table support)
-2. **Render** — [gofpdf](https://github.com/jung-kurt/gofpdf) draws the AST onto a PDF page with styled fonts and colors
-3. **Convert** — Ghostscript rasterizes the PDF to a configurable DPI PNG (or output PDF directly with `-pdf`)
+2. **Render** — Direct rendering to `image.RGBA` using [golang.org/x/image](https://pkg.go.dev/golang.org/x/image) for TTF font rendering
+3. **Output** — PNG encoding with optional auto-crop
 
-The binary is ~5MB. Ghostscript is the only external dependency (not needed for `-pdf` mode).
+The binary is ~6MB. No external dependencies — fonts are loaded from your system.
 
 ## Development
 

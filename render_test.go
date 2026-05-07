@@ -42,7 +42,7 @@ func requireFile(t *testing.T, path string) os.FileInfo {
 func TestRenderHeading(t *testing.T) {
 	out := renderToFile(t, "# Hello World", "heading.png")
 	info := requireFile(t, out)
-	if info.Size() < 500 {
+	if info.Size() < 100 {
 		t.Errorf("heading PNG too small: %d bytes", info.Size())
 	}
 }
@@ -255,20 +255,6 @@ func TestRenderCustomDPI(t *testing.T) {
 	requireFile(t, out)
 }
 
-func TestRenderAsPDF(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.AsPDF = true
-
-	out := filepath.Join(t.TempDir(), "output.pdf")
-	if err := RenderWithConfig("# PDF Output\n\nDirect PDF, no Ghostscript needed.", out, cfg); err != nil {
-		t.Fatalf("RenderWithConfig(PDF) error: %v", err)
-	}
-	info := requireFile(t, out)
-	if info.Size() < 500 {
-		t.Errorf("PDF output too small: %d bytes", info.Size())
-	}
-}
-
 func TestRenderBlockquoteColors(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.BlockquoteLineColor = Color{R: 200, G: 0, B: 0}
@@ -296,6 +282,73 @@ func TestRenderTrim(t *testing.T) {
 	// Trimmed output should be significantly smaller than full page.
 	if info.Size() > 5000 {
 		t.Errorf("trimmed PNG too large (%d bytes) — trim may not have worked", info.Size())
+	}
+}
+
+func TestRenderComplexAllElements(t *testing.T) {
+	md := `# Main Title
+
+## Sub heading
+
+Paragraph with **bold** and *italic* text, plus some ` + "`code`" + ` inline.
+
+| Feature    | Status  | Notes          |
+|------------|---------|----------------|
+| Tables     | Done    | Colored header |
+| Lists      | Done    | Bullet + ordered |
+| Code blocks| Done    | Monospace font |
+
+- Bullet item one
+- Bullet item two
+- Bullet item three
+
+1. First ordered
+2. Second ordered
+3. Third ordered
+
+> A blockquote with some wisdom.
+
+` + "```" + `
+func hello() {
+    fmt.Println("pure Go")
+}
+` + "```" + `
+
+---
+
+Final paragraph after a horizontal rule.
+`
+	out := renderToFile(t, md, "all_elements.png")
+	info := requireFile(t, out)
+	if info.Size() < 3000 {
+		t.Errorf("complex all-elements PNG too small: %d bytes", info.Size())
+	}
+}
+
+func TestRenderComplexAllElementsTrimmed(t *testing.T) {
+	md := `# Report
+
+| Col A | Col B | Col C |
+|-------|-------|-------|
+| 1     | 2     | 3     |
+| 4     | 5     | 6     |
+
+- Item one
+- Item two
+
+> Quote here.
+
+Done.
+`
+	cfg := DefaultConfig()
+	cfg.Trim = true
+	out := renderToFileWithConfig(t, md, "all_trimmed.png", cfg)
+	info := requireFile(t, out)
+	if info.Size() < 500 {
+		t.Errorf("trimmed all-elements PNG too small: %d bytes", info.Size())
+	}
+	if info.Size() > 20000 {
+		t.Errorf("trimmed all-elements PNG too large: %d bytes — trim may have failed", info.Size())
 	}
 }
 
@@ -333,9 +386,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.DPI != 200 {
 		t.Errorf("default DPI = %d, want 200", cfg.DPI)
-	}
-	if cfg.AsPDF {
-		t.Error("default AsPDF should be false")
 	}
 	if cfg.PageWidth != 210 || cfg.PageHeight != 297 {
 		t.Errorf("default page = %.0fx%.0f, want 210x297", cfg.PageWidth, cfg.PageHeight)

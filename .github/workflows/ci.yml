@@ -22,13 +22,11 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Install Ghostscript
+      - name: Install fonts (Ubuntu)
+        if: runner.os == 'Linux'
         run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            brew install ghostscript
-          else
-            sudo apt-get update && sudo apt-get install -y ghostscript
-          fi
+          sudo apt-get update && sudo apt-get install -y fonts-liberation ttf-mscorefonts-installer || true
+          sudo fc-cache -f
 
       - name: Build
         run: go build -v ./...
@@ -51,10 +49,6 @@ jobs:
           # Custom DPI
           echo "# DPI Test" | ./md2img -o /tmp/test_dpi.png -dpi 100
           echo "✓ Custom DPI"
-
-          # PDF output
-          echo "# PDF Test" | ./md2img -o /tmp/test_output.pdf -pdf
-          echo "✓ PDF output"
 
           # Custom colors
           echo "# Color Test" | ./md2img -o /tmp/test_colors.png \
