@@ -1,4 +1,4 @@
-.PHONY: build test install clean
+.PHONY: build test vet bench install clean
 
 VERSION ?= dev
 LDFLAGS := -ldflags "-s -w -X github.com/jmaciasluque/md2img.Version=$(VERSION)"
@@ -8,6 +8,12 @@ build:
 
 test:
 	go test -v -race -count=1 ./...
+
+vet:
+	go vet ./...
+
+bench:
+	go test -bench=. -benchmem -count=3 -timeout=300s ./...
 
 install:
 	go install $(LDFLAGS) ./cmd/md2img

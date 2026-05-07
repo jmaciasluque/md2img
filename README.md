@@ -41,6 +41,9 @@ go install github.com/jmaciasluque/md2img/cmd/md2img@latest
 # From stdin
 echo "| Name | Score |\n|------|-------|\n| Alice | 95 |" | md2img -o scores.png
 
+# Explicit stdin marker
+echo "# Hello" | md2img -o hello.png -
+
 # From file
 md2img -o output.png input.md
 
@@ -214,15 +217,17 @@ EOF
 
 ## Benchmarks
 
-No external dependencies means fast rendering:
+No external dependencies keeps rendering simple, but the renderer currently allocates a full high-DPI page canvas. These results are from an Apple M4 at Go 1.26.2:
 
 ```
-BenchmarkRenderSimple       7.3ms    (was 116ms with Ghostscript — 16x faster)
-BenchmarkRenderTable        9.6ms    (was 117ms — 12x faster)
-BenchmarkRenderComplex     21.0ms    (was 122ms — 6x faster)
-BenchmarkRenderDPI100       8.5ms
-BenchmarkRenderDPI300      36.0ms
-BenchmarkRenderTrimmed     24.0ms
+BenchmarkRenderSimple          15.4ms    67.4MB/op
+BenchmarkRenderTable           20.3ms    68.8MB/op
+BenchmarkRenderComplex         45.3ms    76.2MB/op
+BenchmarkRenderDPI100          19.8ms    26.8MB/op
+BenchmarkRenderDPI300          76.4ms   157.8MB/op
+BenchmarkRenderTrimmed         52.7ms    76.2MB/op
+BenchmarkRenderInline          16.1ms    67.4MB/op
+BenchmarkRenderFullWidthTable  30.5ms    70.9MB/op
 ```
 
 ## Project Structure
@@ -253,13 +258,16 @@ md2img/
 2. **Render** — Direct rendering to `image.RGBA` using [golang.org/x/image](https://pkg.go.dev/golang.org/x/image) for TTF font rendering
 3. **Output** — PNG encoding with optional auto-crop
 
-The binary is ~6MB. No external dependencies — fonts are loaded from your system.
+The binary is a few MB depending on OS and architecture. No external dependencies — fonts are loaded from your system.
 
 ## Development
 
 ```bash
 # Run tests
 make test
+
+# Run go vet
+make vet
 
 # Build
 make build
@@ -268,7 +276,7 @@ make build
 make install
 
 # Run benchmarks
-go test -bench=. -benchmem -count=3 ./...
+make bench
 
 # Compare against a previous run
 go test -bench=. -benchmem -count=5 ./... | tee new.txt

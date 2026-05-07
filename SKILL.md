@@ -7,7 +7,7 @@ tags: [markdown, png, image, rendering, matrix, slack, discord, telegram]
 
 # md2img — Markdown to PNG
 
-Renders markdown to styled PNG images using a pure Go binary (`~/bin/md2img`). No external runtime dependencies.
+Renders markdown to styled PNG images using a pure Go binary (`md2img`). No external runtime dependencies.
 
 ## Pipeline
 
@@ -15,7 +15,7 @@ Renders markdown to styled PNG images using a pure Go binary (`~/bin/md2img`). N
 markdown → goldmark (parser) → canvas (golang.org/x/image + image/draw) → PNG
 ```
 
-**No Ghostscript, no PDF intermediate.** The renderer draws directly to an `image.NRGBA` canvas using `golang.org/x/image/font` for TTF text and `image/draw` for shapes.
+**No Ghostscript, no PDF intermediate.** The renderer draws directly to a Go image canvas using `golang.org/x/image/font` for TTF text and `image/draw` for shapes.
 
 **Fonts**: Loads system TTF fonts via `findFirst()` — checks macOS paths (`/Library/Fonts/`, `~/Library/Fonts/`) then Ubuntu paths (`/usr/share/fonts/truetype/`). Falls back to `golang.org/x/image/font/basicfont` (bitmap, fixed-size — smaller output on systems without TTF fonts).
 
@@ -29,6 +29,8 @@ brew install jmaciasluque/tap/md2img
 cd ~/src/md2img && make build && make install
 ```
 
+If `md2img` is not on PATH, build it from the repo and use `./md2img`.
+
 ## Usage
 
 ```bash
@@ -37,6 +39,9 @@ md2img -o output.png input.md
 
 # From stdin
 echo "## Hello" | md2img -o output.png
+
+# Explicit stdin marker
+echo "## Hello" | md2img -o output.png -
 
 # With customization flags
 md2img -o dark.png -heading-color "#006600" -table-header-bg "#2d3748" -dpi 300 input.md
@@ -59,7 +64,7 @@ Key groups:
 - **Table**: `-table-header-font`, `-table-header-size`, `-table-full-width` (opt-in to stretch tables across full width; default is auto-width fitting content)
 - **Code**: `-code-font`, `-code-font-size`
 
-**Note**: Input is a positional arg (not `-input`). Output is `-o` (not `-output`). Stdin is used when no positional arg is given.
+**Note**: Input is a positional arg (not `-input`). Output is `-o` or `--output`. Stdin is used when no positional arg is given, or when the positional arg is `-`.
 
 ## Library API
 
@@ -95,7 +100,15 @@ err := md2img.RenderWithConfig(input, output, cfg)
 
 - **No inline images** — only text-based rendering.
 - **No nested lists** — flat lists only.
+- **No word wrapping yet** — long paragraphs, code lines, and table cells can clip at the canvas edge.
 - **Font availability varies by platform** — macOS has good TTF coverage; Ubuntu needs `fonts-liberation` package for proper rendering.
+
+## Agent Workflow
+
+1. Check `md2img -version` or build with `make build`.
+2. Render markdown with `-trim` for chat attachments unless full-page output is needed.
+3. Verify the output path exists and is non-empty before sending or attaching it.
+4. For wide tables or long prose, inspect the PNG because current rendering does not wrap text.
 
 ## Source & Repo
 
