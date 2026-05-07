@@ -3,26 +3,14 @@ package md2img
 import (
 	"image"
 	"image/draw"
-	"image/png"
-	"os"
 )
 
-// writeTrimmedPNG crops an image to its content bounds and writes it.
-func writeTrimmedPNG(img image.Image, path string, dpi int, paddingMM float64) error {
+// trimToContent crops an image to its content bounds with padding.
+func trimToContent(img image.Image, dpi int, paddingMM float64) image.Image {
 	bounds := img.Bounds()
-
-	// Convert to NRGBA for pixel access.
 	nrgba := image.NewNRGBA(bounds)
 	draw.Draw(nrgba, bounds, img, bounds.Min, draw.Src)
-
-	cropped := trimImage(nrgba, dpi, paddingMM)
-
-	out, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	return png.Encode(out, cropped)
+	return trimImage(nrgba, dpi, paddingMM)
 }
 
 // trimImage scans for non-white content and crops with padding.

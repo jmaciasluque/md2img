@@ -181,6 +181,41 @@ func TestCLIColorFlags(t *testing.T) {
 	}
 }
 
+func TestCLIThemeFlag(t *testing.T) {
+	mdFile := filepath.Join(t.TempDir(), "theme.md")
+	if err := os.WriteFile(mdFile, []byte("# Theme\n\nTest."), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outFile := filepath.Join(t.TempDir(), "theme.png")
+	out, err := runCLI(t, "-o", outFile, "-theme", "dark", mdFile)
+	if err != nil {
+		t.Fatalf("CLI with theme failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Done:") {
+		t.Errorf("expected 'Done:' in output, got: %s", out)
+	}
+}
+
+func TestCLIBadThemeFlag(t *testing.T) {
+	out, err := runCLI(t, "-theme", "missing", "-")
+	if err == nil {
+		t.Error("expected error for invalid theme")
+	}
+	if !strings.Contains(out, "unknown theme") {
+		t.Errorf("expected theme error, got: %q", out)
+	}
+}
+
+func TestCLIBadFontFile(t *testing.T) {
+	out, err := runCLI(t, "-font-file", "/no/such/font.ttf", "-")
+	if err == nil {
+		t.Error("expected error for invalid font file")
+	}
+	if !strings.Contains(out, "invalid -font-file") {
+		t.Errorf("expected font file error, got: %q", out)
+	}
+}
+
 func TestCLIMarginFlag(t *testing.T) {
 	mdFile := filepath.Join(t.TempDir(), "margin.md")
 	if err := os.WriteFile(mdFile, []byte("# Margins\n\nWide margins."), 0644); err != nil {

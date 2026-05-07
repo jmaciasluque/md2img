@@ -1,4 +1,4 @@
-.PHONY: build test vet bench install clean
+.PHONY: build test vet bench release-snapshot install clean
 
 VERSION ?= dev
 LDFLAGS := -ldflags "-s -w -X github.com/jmaciasluque/md2img.Version=$(VERSION)"
@@ -14,6 +14,9 @@ vet:
 
 bench:
 	go test -bench=. -benchmem -count=3 -timeout=300s ./...
+
+release-snapshot:
+	go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
 
 install:
 	go install $(LDFLAGS) ./cmd/md2img

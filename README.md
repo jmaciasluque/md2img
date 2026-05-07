@@ -71,8 +71,10 @@ echo "| A | B |" | md2img -o tight.png -trim
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-font`, `--font` | Body font family (`Helvetica`, `Times`, `Courier`) | `Helvetica` |
+| `-font-file` | Body font TTF/OTF path | — |
 | `-font-size`, `--font-size` | Body font size (points) | `14` |
 | `-heading-font`, `--heading-font` | Heading font (empty = same as body) | (same as body) |
+| `-heading-font-file` | Heading font TTF/OTF path | — |
 
 ### Page Layout
 
@@ -87,8 +89,17 @@ echo "| A | B |" | md2img -o tight.png -trim
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-table-full-width`, `--table-full-width` | Stretch table to fill available width | `false` (auto-width) |
+| `-table-header-font` | Table header font | (same as body) |
+| `-table-header-font-file` | Table header font TTF/OTF path | — |
+| `-table-header-size` | Table header font size | `12` |
 
 Tables auto-size to fit their content by default. Use `-table-full-width` to stretch across the full width between margins.
+
+### Theme
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-theme` | Theme preset: `light`, `dark`, `github`, `slack` | `light` |
 
 ### Colors
 
@@ -97,15 +108,15 @@ All color flags accept hex values: `#333366`, `333366`, or shorthand `#fff`.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-text-color` | Body text color | `#282828` |
+| `-link-color` | Link text color | `#2850B4` |
 | `-heading-color` | Heading text color | `#282850` |
 | `-table-header-bg` | Table header background | `#323250` |
 | `-table-header-fg` | Table header text color | `#C8C8FF` |
-| `-table-header-font` | Table header font | (same as body) |
-| `-table-header-size` | Table header font size | `12` |
 | `-table-row-even` | Even table row background | `#F5F5FA` |
 | `-table-row-odd` | Odd table row background | `#FFFFFF` |
 | `-code-bg` | Code block background | `#F0F0F0` |
 | `-code-font` | Code block font | `Courier` |
+| `-code-font-file` | Code block font TTF/OTF path | — |
 | `-code-font-size` | Code block font size | `11` |
 | `-blockquote-line-color` | Blockquote left border | `#6464C8` |
 | `-blockquote-text-color` | Blockquote text color | `#646464` |
@@ -115,13 +126,7 @@ All color flags accept hex values: `#333366`, `333366`, or shorthand `#fff`.
 
 ```bash
 # Dark theme table
-echo "| Name | Score |\n|------|-------|\n| Alice | 95 |" | md2img \
-  -o dark_table.png \
-  -text-color "#E2E8F0" \
-  -table-header-bg "#2D3748" \
-  -table-header-fg "#E2E8F0" \
-  -table-row-even "#1A202C" \
-  -table-row-odd "#2D3748"
+echo "| Name | Score |\n|------|-------|\n| Alice | 95 |" | md2img -theme dark -o dark_table.png
 
 # US Letter, high resolution
 md2img -o report.png -page-w 215.9 -page-h 279.4 -dpi 300 report.md
@@ -131,6 +136,9 @@ echo "| A | B |" | md2img -o padded.png -trim -trim-padding 10
 
 # Times font, large text
 md2img -o big.png -font Times -font-size 16 -heading-font Helvetica input.md
+
+# Use a specific Unicode-capable font file
+md2img -o unicode.png -font-file /path/to/NotoSans-Regular.ttf input.md
 
 # Full-width table (stretches to fill page)
 echo "| A | B |\n|---|---|\n| 1 | 2 |" | md2img -o wide.png -table-full-width
@@ -153,6 +161,10 @@ cfg.TableHeaderFg = md2img.Color{R: 226, G: 232, B: 240}
 cfg.Trim = true  // auto-crop whitespace
 
 err := md2img.RenderWithConfig("# Report\n\n| A | B |\n|---|---|\n| 1 | 2 |", "report.png", cfg)
+
+// Render without touching the filesystem
+img, err := md2img.RenderImage("# Preview", cfg)
+err = md2img.RenderPNG(w, "# Stream me", cfg)
 ```
 
 ### Color helpers
@@ -201,33 +213,36 @@ EOF
 |---------|-----------|
 | Headers (H1–H6) | Bold, sized proportionally |
 | Tables | Auto-sized columns (or full-width), configurable header/row colors |
-| Bullet lists | `*` prefix |
+| Table alignment | Left, center, and right alignment markers |
+| Bullet lists | `*` prefix, including nested lists |
 | Numbered lists | `1.` `2.` `3.` prefix |
+| Task lists | `[x]` and `[ ]` markers |
 | Code blocks | Monospace font, configurable background |
 | Blockquotes | Configurable left border, italic |
 | Horizontal rules | Configurable color and thickness |
 | Bold / italic | Supported inline within paragraphs |
+| Links | Colored and underlined link text |
+| Strikethrough | Horizontal strike through text |
 | Inline code | Monospace font at body text size |
 
 ## Limitations
 
-- **ASCII only** — Unicode characters (emojis, em dashes, special symbols) are mapped to ASCII equivalents. Full Unicode support requires embedding a TTF font.
+- **Font dependent Unicode** — glyphs render when the selected system/custom font supports them. Unsupported glyphs fall back to ASCII placeholders.
 - **No inline images** — text-based rendering only.
-- **No nested lists** — flat lists only.
 
 ## Benchmarks
 
 No external dependencies keeps rendering simple. These results are from an Apple M4 at Go 1.26.2:
 
 ```
-BenchmarkRenderSimple           7.1ms    21.0MB/op
-BenchmarkRenderTable           12.4ms    22.4MB/op
-BenchmarkRenderComplex         41.1ms    30.7MB/op
-BenchmarkRenderDPI100          20.1ms    15.8MB/op
-BenchmarkRenderDPI300          71.0ms    55.5MB/op
-BenchmarkRenderTrimmed         48.2ms    30.7MB/op
-BenchmarkRenderInline           7.5ms    20.3MB/op
-BenchmarkRenderFullWidthTable  22.1ms    24.6MB/op
+BenchmarkRenderSimple           6.0ms    16.6MB/op
+BenchmarkRenderTable           14.5ms    17.1MB/op
+BenchmarkRenderComplex         39.5ms    22.2MB/op
+BenchmarkRenderDPI100          18.2ms     7.2MB/op
+BenchmarkRenderDPI300          68.5ms    47.0MB/op
+BenchmarkRenderTrimmed         46.6ms    22.2MB/op
+BenchmarkRenderInline           6.6ms    16.7MB/op
+BenchmarkRenderFullWidthTable  20.9ms    19.2MB/op
 ```
 
 ## Project Structure
@@ -240,11 +255,13 @@ md2img/
 ├── render.go       # Direct-to-image rendering engine + Config (library API)
 ├── fonts.go        # TTF font loading with system fallback
 ├── trim.go         # Auto-crop whitespace
+├── theme.go        # Built-in theme presets
 ├── sanitize.go     # Unicode → ASCII mapping
 ├── sanitize_test.go
 ├── render_test.go
 ├── bench_test.go
 ├── Makefile
+├── .goreleaser.yaml
 ├── .github/workflows/
 │   ├── ci.yml      # Build + test on macOS & Ubuntu
 │   ├── bench.yml   # Benchmark suite with benchstat
@@ -277,6 +294,9 @@ make install
 
 # Run benchmarks
 make bench
+
+# Validate release configuration locally
+make release-snapshot
 
 # Compare against a previous run
 go test -bench=. -benchmem -count=5 ./... | tee new.txt
